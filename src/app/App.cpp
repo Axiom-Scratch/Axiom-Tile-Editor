@@ -367,6 +367,9 @@ void App::Run() {
     if (hasScene) {
       glEnable(GL_SCISSOR_TEST);
       glScissor(sceneX, sceneY, sceneViewport.x, sceneViewport.y);
+      glClearColor(0.18f, 0.18f, 0.20f, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT);
+      glDisable(GL_SCISSOR_TEST);
       glViewport(sceneX, sceneY, sceneViewport.x, sceneViewport.y);
     }
 
@@ -430,9 +433,6 @@ void App::Run() {
     }
 
     m_renderer.EndFrame();
-    if (hasScene) {
-      glDisable(GL_SCISSOR_TEST);
-    }
 
     ui::DrawSceneOverlay(m_uiState, fps, m_camera.GetZoom(), m_editor.selection.hasHover,
                          m_editor.selection.hoverCell, m_editor.currentTileIndex);

@@ -85,6 +85,36 @@ bool ParseIntAfterKey(const std::string& text, const std::string& key, int& outV
   }
 }
 
+bool ParseFloatAfterKey(const std::string& text, const std::string& key, float& outValue) {
+  const std::string token = "\"" + key + "\"";
+  size_t pos = text.find(token);
+  if (pos == std::string::npos) {
+    return false;
+  }
+  pos = text.find(':', pos);
+  if (pos == std::string::npos) {
+    return false;
+  }
+  ++pos;
+  while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) {
+    ++pos;
+  }
+  size_t end = pos;
+  while (end < text.size() &&
+         (std::isdigit(static_cast<unsigned char>(text[end])) || text[end] == '-' || text[end] == '.')) {
+    ++end;
+  }
+  if (end == pos) {
+    return false;
+  }
+  try {
+    outValue = std::stof(text.substr(pos, end - pos));
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 bool ParseStringAfterKey(const std::string& text, const std::string& key, std::string& outValue) {
   const std::string token = "\"" + key + "\"";
   size_t pos = text.find(token);
@@ -165,6 +195,37 @@ std::vector<std::string> ExtractJsonArray(const std::string& text, const std::st
   return result;
 }
 
+const char* ThemePresetLabel(ThemePreset preset) {
+  switch (preset) {
+    case ThemePreset::Dark:
+      return "Dark";
+    case ThemePreset::UnityDark:
+      return "UnityDark";
+    case ThemePreset::Light:
+      return "Light";
+    default:
+      return "UnityDark";
+  }
+}
+
+ThemePreset ParseThemePreset(const std::string& value, ThemePreset fallback) {
+  if (value == "Dark") return ThemePreset::Dark;
+  if (value == "UnityDark") return ThemePreset::UnityDark;
+  if (value == "Light") return ThemePreset::Light;
+  return fallback;
+}
+
+ThemeSettings DefaultThemeSettings(ThemePreset preset) {
+  ThemeSettings settings{};
+  settings.preset = preset;
+  settings.globalAlpha = 0.95f;
+  settings.windowBgAlpha = 0.75f;
+  settings.frameBgAlpha = 0.85f;
+  settings.popupBgAlpha = 0.9f;
+  settings.rounding = 4.0f;
+  return settings;
+}
+
 void ApplyDefaults(EditorUIState& state) {
   state.currentMapPath = "assets/maps/map.json";
   state.lastAtlas.path = "assets/textures/atlas.png";
@@ -172,6 +233,9 @@ void ApplyDefaults(EditorUIState& state) {
   state.lastAtlas.tileH = 32;
   state.lastAtlas.cols = 0;
   state.lastAtlas.rows = 0;
+  state.showSettings = true;
+  state.theme = DefaultThemeSettings(ThemePreset::UnityDark);
+  state.themeDirty = true;
 }
 
 void EnsureBuffer(char* buffer, size_t size, const std::string& value) {
@@ -203,7 +267,13 @@ void SaveEditorConfigInternal(const EditorUIState& state) {
   file << "  \"atlasTileW\": " << state.lastAtlas.tileW << ",\n";
   file << "  \"atlasTileH\": " << state.lastAtlas.tileH << ",\n";
   file << "  \"atlasCols\": " << state.lastAtlas.cols << ",\n";
-  file << "  \"atlasRows\": " << state.lastAtlas.rows << "\n";
+  file << "  \"atlasRows\": " << state.lastAtlas.rows << ",\n";
+  file << "  \"themePreset\": \"" << ThemePresetLabel(state.theme.preset) << "\",\n";
+  file << "  \"themeGlobalAlpha\": " << state.theme.globalAlpha << ",\n";
+  file << "  \"themeWindowBgAlpha\": " << state.theme.windowBgAlpha << ",\n";
+  file << "  \"themeFrameBgAlpha\": " << state.theme.frameBgAlpha << ",\n";
+  file << "  \"themePopupBgAlpha\": " << state.theme.popupBgAlpha << ",\n";
+  file << "  \"themeRounding\": " << state.theme.rounding << "\n";
   file << "}\n";
 }
 
@@ -322,6 +392,7 @@ void DrawMenuBar(EditorUIState& state, EditorUIOutput& out) {
   if (ImGui::BeginMenu("View")) {
     ImGui::MenuItem("Hierarchy", nullptr, &state.showHierarchy);
     ImGui::MenuItem("Inspector", nullptr, &state.showInspector);
+    ImGui::MenuItem("Settings", nullptr, &state.showSettings);
     ImGui::MenuItem("Project", nullptr, &state.showProject);
     ImGui::MenuItem("Console", nullptr, &state.showConsole);
     ImGui::MenuItem("Tile Palette", nullptr, &state.showTilePalette);
@@ -508,6 +579,46 @@ void DrawInspector(EditorUIState& state, EditorUIOutput& out, EditorState& edito
       out.atlasPath = state.atlasPathBuffer;
       out.requestReloadAtlas = true;
     }
+  }
+
+  ImGui::End();
+}
+
+void DrawSettings(EditorUIState& state) {
+  if (!ImGui::Begin("Settings")) {
+    ImGui::End();
+    return;
+  }
+
+  ThemeSettings& theme = state.theme;
+  int presetIndex = 0;
+  if (theme.preset == ThemePreset::UnityDark) {
+    presetIndex = 1;
+  } else if (theme.preset == ThemePreset::Light) {
+    presetIndex = 2;
+  }
+
+  bool changed = false;
+  if (ImGui::Combo("Theme Preset", &presetIndex, "Dark\0UnityDark\0Light\0")) {
+    theme.preset = (presetIndex == 0) ? ThemePreset::Dark :
+                   (presetIndex == 1) ? ThemePreset::UnityDark :
+                                        ThemePreset::Light;
+    changed = true;
+  }
+
+  changed |= ImGui::SliderFloat("Global Alpha", &theme.globalAlpha, 0.6f, 1.0f, "%.2f");
+  changed |= ImGui::SliderFloat("Window Bg Alpha", &theme.windowBgAlpha, 0.2f, 0.9f, "%.2f");
+  changed |= ImGui::SliderFloat("Frame Bg Alpha", &theme.frameBgAlpha, 0.2f, 0.9f, "%.2f");
+  changed |= ImGui::SliderFloat("Rounding", &theme.rounding, 0.0f, 8.0f, "%.1f");
+
+  if (ImGui::Button("Reset Theme")) {
+    theme = DefaultThemeSettings(theme.preset);
+    changed = true;
+  }
+
+  if (changed) {
+    theme.popupBgAlpha = theme.windowBgAlpha;
+    state.themeDirty = true;
   }
 
   ImGui::End();
@@ -741,6 +852,7 @@ void BuildDockSpace(EditorUIState& state) {
     ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
     ImGui::DockBuilderDockWindow("Tile Palette", dockLeft);
     ImGui::DockBuilderDockWindow("Inspector", dockRight);
+    ImGui::DockBuilderDockWindow("Settings", dockRight);
     ImGui::DockBuilderDockWindow("Project", dockBottom);
     ImGui::DockBuilderDockWindow("Console", dockBottom);
 
@@ -780,6 +892,16 @@ void LoadEditorConfig(EditorUIState& state) {
   ParseIntAfterKey(text, "atlasCols", state.lastAtlas.cols);
   ParseIntAfterKey(text, "atlasRows", state.lastAtlas.rows);
 
+  std::string themePreset;
+  if (ParseStringAfterKey(text, "themePreset", themePreset)) {
+    state.theme.preset = ParseThemePreset(themePreset, state.theme.preset);
+  }
+  ParseFloatAfterKey(text, "themeGlobalAlpha", state.theme.globalAlpha);
+  ParseFloatAfterKey(text, "themeWindowBgAlpha", state.theme.windowBgAlpha);
+  ParseFloatAfterKey(text, "themeFrameBgAlpha", state.theme.frameBgAlpha);
+  ParseFloatAfterKey(text, "themePopupBgAlpha", state.theme.popupBgAlpha);
+  ParseFloatAfterKey(text, "themeRounding", state.theme.rounding);
+
   if (state.lastAtlas.path.empty()) {
     state.lastAtlas.path = "assets/textures/atlas.png";
   }
@@ -792,6 +914,7 @@ void LoadEditorConfig(EditorUIState& state) {
   if (state.currentMapPath.empty()) {
     state.currentMapPath = "assets/maps/map.json";
   }
+  state.themeDirty = true;
 }
 
 void SaveEditorConfig(const EditorUIState& state) {
@@ -825,6 +948,11 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
                             const Texture& atlasTexture) {
   EditorUIOutput out{};
 
+  if (state.themeDirty) {
+    ApplyTheme(state.theme);
+    state.themeDirty = false;
+  }
+
   BuildDockSpace(state);
   DrawMenuBar(state, out);
   DrawToolbar(state, out, editor, atlasTexture);
@@ -835,6 +963,9 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
   }
   if (state.showInspector) {
     DrawInspector(state, out, editor);
+  }
+  if (state.showSettings) {
+    DrawSettings(state);
   }
   if (state.showProject) {
     DrawProject(state, out, editor);

@@ -3,6 +3,7 @@
 #include "app/Config.h"
 #include "editor/Atlas.h"
 #include "editor/Tools.h"
+#include "ui/Theme.h"
 #include "util/Log.h"
 
 #include <string>
@@ -30,6 +31,7 @@ struct EditorUIState {
 
   bool showHierarchy = true;
   bool showInspector = true;
+  bool showSettings = true;
   bool showProject = true;
   bool showConsole = true;
   bool showTilePalette = true;
@@ -63,6 +65,9 @@ struct EditorUIState {
 
   bool dockInitialized = false;
   int lastLayerSelection = -2;
+
+  ThemeSettings theme{};
+  bool themeDirty = true;
 };
 
 struct EditorUIOutput {
