@@ -87,6 +87,7 @@ target_include_directories(glad PUBLIC
   external/glad/include
 )
 target_compile_options(glad PRIVATE ${TE_WARNINGS_DEPS})
+target_compile_options(glad PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-pedantic>)
 
 add_library(stb_image STATIC
   external/stb/stb_image.cpp

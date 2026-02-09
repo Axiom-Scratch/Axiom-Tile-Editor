@@ -160,7 +160,7 @@ void App::Run() {
     ImGuiIO& io = ImGui::GetIO();
     const bool imguiActive = ImGui::GetCurrentContext() != nullptr;
 
-    ui::EditorUIOutput uiOutput = ui::DrawEditorUI(m_uiState, m_editor, m_log, m_atlasTexture);
+    ui::EditorUIOutput uiOutput = ui::DrawEditorUI(m_uiState, m_editor, m_log, m_atlasTexture, m_sceneFramebuffer);
     if (m_uiState.vsyncDirty) {
       m_window.SetVsync(m_uiState.vsyncEnabled);
       m_uiState.vsyncDirty = false;
@@ -168,31 +168,18 @@ void App::Run() {
 
     const bool blockKeys = imguiActive && io.WantCaptureKeyboard;
     const bool popupOpen = imguiActive && ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
-    const bool blockMouse = popupOpen || (imguiActive && io.WantCaptureMouse && ImGui::IsAnyItemHovered());
+    const bool blockMouse = popupOpen || (imguiActive && io.WantCaptureMouse && !m_uiState.sceneHovered);
     const bool allowMouse = m_uiState.sceneHovered && !blockMouse;
     const bool allowKeyboard = !blockKeys;
 
-    const float scaleX = io.DisplayFramebufferScale.x;
-    const float scaleY = io.DisplayFramebufferScale.y;
-    Vec2i sceneViewport = m_framebuffer;
-    int sceneX = 0;
-    int sceneY = 0;
-    bool hasScene = m_uiState.sceneRect.width > 1.0f && m_uiState.sceneRect.height > 1.0f;
+    Vec2i sceneViewport{m_sceneFramebuffer.GetWidth(), m_sceneFramebuffer.GetHeight()};
+    bool hasScene = m_uiState.sceneRect.width > 1.0f && m_uiState.sceneRect.height > 1.0f &&
+                    sceneViewport.x > 0 && sceneViewport.y > 0;
+    float sceneScaleX = 1.0f;
+    float sceneScaleY = 1.0f;
     if (hasScene) {
-      const float scenePosX = m_uiState.sceneRect.x * scaleX;
-      const float scenePosY = m_uiState.sceneRect.y * scaleY;
-      const float sceneWidth = m_uiState.sceneRect.width * scaleX;
-      const float sceneHeight = m_uiState.sceneRect.height * scaleY;
-      sceneViewport.x = static_cast<int>(sceneWidth);
-      sceneViewport.y = static_cast<int>(sceneHeight);
-      sceneX = static_cast<int>(scenePosX);
-      sceneY = static_cast<int>(static_cast<float>(m_framebuffer.y) - (scenePosY + sceneHeight));
-      if (sceneViewport.x <= 0 || sceneViewport.y <= 0) {
-        hasScene = false;
-        sceneViewport = m_framebuffer;
-        sceneX = 0;
-        sceneY = 0;
-      }
+      sceneScaleX = static_cast<float>(sceneViewport.x) / m_uiState.sceneRect.width;
+      sceneScaleY = static_cast<float>(sceneViewport.y) / m_uiState.sceneRect.height;
     }
 
     auto handleUndo = [&]() {
@@ -299,8 +286,8 @@ void App::Run() {
       const ActionState& paintAction = m_actions.Get(Action::Paint);
       if (panAction.down || (panToolActive && paintAction.down)) {
         Vec2 delta = m_input.GetMouseDelta();
-        delta.x *= scaleX;
-        delta.y *= scaleY;
+        delta.x *= sceneScaleX;
+        delta.y *= sceneScaleY;
         camPos.x -= delta.x / m_camera.GetZoom();
         camPos.y += delta.y / m_camera.GetZoom();
       }
@@ -311,16 +298,11 @@ void App::Run() {
     Vec2 mouseWorld{};
     if (hasScene) {
       const Vec2 mousePos = m_input.GetMousePos();
-      const Vec2 mousePosFb{mousePos.x * scaleX, mousePos.y * scaleY};
-      const Vec2 scenePosFb{m_uiState.sceneRect.x * scaleX, m_uiState.sceneRect.y * scaleY};
-      const Vec2 localPos{mousePosFb.x - scenePosFb.x, mousePosFb.y - scenePosFb.y};
-      mouseWorld = m_camera.ScreenToWorld(localPos, sceneViewport);
-    } else {
-      const Vec2 mousePos = m_input.GetMousePos();
-      const Vec2 mousePosFb{mousePos.x * scaleX, mousePos.y * scaleY};
-      mouseWorld = m_camera.ScreenToWorld(mousePosFb, sceneViewport);
+      const Vec2 localPos{mousePos.x - m_uiState.sceneRect.x, mousePos.y - m_uiState.sceneRect.y};
+      const Vec2 localFb{localPos.x * sceneScaleX, localPos.y * sceneScaleY};
+      mouseWorld = m_camera.ScreenToWorld(localFb, sceneViewport);
     }
-    if (!m_uiState.sceneHovered) {
+    if (!hasScene || !m_uiState.sceneHovered) {
       mouseWorld = {-100000.0f, -100000.0f};
     }
 
@@ -365,74 +347,74 @@ void App::Run() {
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (hasScene) {
-      glEnable(GL_SCISSOR_TEST);
-      glScissor(sceneX, sceneY, sceneViewport.x, sceneViewport.y);
+      m_sceneFramebuffer.Bind();
+      glViewport(0, 0, sceneViewport.x, sceneViewport.y);
       glClearColor(0.18f, 0.18f, 0.20f, 1.0f);
-      glClear(GL_COLOR_BUFFER_BIT);
-      glDisable(GL_SCISSOR_TEST);
-      glViewport(sceneX, sceneY, sceneViewport.x, sceneViewport.y);
-    }
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    m_renderer.BeginFrame(m_camera.GetViewProjection(sceneViewport));
+      m_renderer.BeginFrame(m_camera.GetViewProjection(sceneViewport));
 
-    for (int y = 0; y < m_editor.tileMap.GetHeight(); ++y) {
-      for (int x = 0; x < m_editor.tileMap.GetWidth(); ++x) {
-        const int tileIndex = m_editor.tileMap.GetTile(x, y);
-        if (tileIndex == 0) {
-          continue;
-        }
-        const Vec2 pos{static_cast<float>(x * m_editor.tileMap.GetTileSize()),
-                       static_cast<float>(y * m_editor.tileMap.GetTileSize())};
-        const Vec2 size{static_cast<float>(m_editor.tileMap.GetTileSize()),
-                        static_cast<float>(m_editor.tileMap.GetTileSize())};
-        if (!m_atlasTexture.IsFallback()) {
-          Vec2 uv0{};
-          Vec2 uv1{};
-          if (ComputeAtlasUV(m_editor.atlas, tileIndex, uv0, uv1)) {
-            m_renderer.DrawQuad(pos, size, {1.0f, 1.0f, 1.0f, 1.0f}, uv0, uv1, &m_atlasTexture);
+      for (int y = 0; y < m_editor.tileMap.GetHeight(); ++y) {
+        for (int x = 0; x < m_editor.tileMap.GetWidth(); ++x) {
+          const int tileIndex = m_editor.tileMap.GetTile(x, y);
+          if (tileIndex == 0) {
+            continue;
+          }
+          const Vec2 pos{static_cast<float>(x * m_editor.tileMap.GetTileSize()),
+                         static_cast<float>(y * m_editor.tileMap.GetTileSize())};
+          const Vec2 size{static_cast<float>(m_editor.tileMap.GetTileSize()),
+                          static_cast<float>(m_editor.tileMap.GetTileSize())};
+          if (!m_atlasTexture.IsFallback()) {
+            Vec2 uv0{};
+            Vec2 uv1{};
+            if (ComputeAtlasUV(m_editor.atlas, tileIndex, uv0, uv1)) {
+              m_renderer.DrawQuad(pos, size, {1.0f, 1.0f, 1.0f, 1.0f}, uv0, uv1, &m_atlasTexture);
+            } else {
+              const Vec4 color = TileColor(tileIndex);
+              m_renderer.DrawQuad(pos, size, color);
+            }
           } else {
             const Vec4 color = TileColor(tileIndex);
             m_renderer.DrawQuad(pos, size, color);
           }
-        } else {
-          const Vec4 color = TileColor(tileIndex);
-          m_renderer.DrawQuad(pos, size, color);
         }
       }
-    }
 
-    if (m_uiState.showGrid) {
-      const float width = static_cast<float>(m_editor.tileMap.GetWidth() * m_editor.tileMap.GetTileSize());
-      const float height = static_cast<float>(m_editor.tileMap.GetHeight() * m_editor.tileMap.GetTileSize());
-      const Vec4 gridColor{0.15f, 0.15f, 0.18f, 0.7f};
+      if (m_uiState.showGrid) {
+        const float width = static_cast<float>(m_editor.tileMap.GetWidth() * m_editor.tileMap.GetTileSize());
+        const float height = static_cast<float>(m_editor.tileMap.GetHeight() * m_editor.tileMap.GetTileSize());
+        const Vec4 gridColor{0.15f, 0.15f, 0.18f, 0.7f};
 
-      for (int x = 0; x <= m_editor.tileMap.GetWidth(); ++x) {
-        const float xpos = static_cast<float>(x * m_editor.tileMap.GetTileSize());
-        m_renderer.DrawLine({xpos, 0.0f}, {xpos, height}, gridColor);
+        for (int x = 0; x <= m_editor.tileMap.GetWidth(); ++x) {
+          const float xpos = static_cast<float>(x * m_editor.tileMap.GetTileSize());
+          m_renderer.DrawLine({xpos, 0.0f}, {xpos, height}, gridColor);
+        }
+
+        for (int y = 0; y <= m_editor.tileMap.GetHeight(); ++y) {
+          const float ypos = static_cast<float>(y * m_editor.tileMap.GetTileSize());
+          m_renderer.DrawLine({0.0f, ypos}, {width, ypos}, gridColor);
+        }
       }
 
-      for (int y = 0; y <= m_editor.tileMap.GetHeight(); ++y) {
-        const float ypos = static_cast<float>(y * m_editor.tileMap.GetTileSize());
-        m_renderer.DrawLine({0.0f, ypos}, {width, ypos}, gridColor);
+      if (m_editor.selection.hasHover) {
+        const int x = m_editor.selection.hoverCell.x;
+        const int y = m_editor.selection.hoverCell.y;
+        const float ts = static_cast<float>(m_editor.tileMap.GetTileSize());
+        const float x0 = static_cast<float>(x) * ts;
+        const float y0 = static_cast<float>(y) * ts;
+        const float x1 = x0 + ts;
+        const float y1 = y0 + ts;
+        const Vec4 hoverColor{1.0f, 1.0f, 1.0f, 0.4f};
+        m_renderer.DrawLine({x0, y0}, {x1, y0}, hoverColor);
+        m_renderer.DrawLine({x1, y0}, {x1, y1}, hoverColor);
+        m_renderer.DrawLine({x1, y1}, {x0, y1}, hoverColor);
+        m_renderer.DrawLine({x0, y1}, {x0, y0}, hoverColor);
       }
-    }
 
-    if (m_editor.selection.hasHover) {
-      const int x = m_editor.selection.hoverCell.x;
-      const int y = m_editor.selection.hoverCell.y;
-      const float ts = static_cast<float>(m_editor.tileMap.GetTileSize());
-      const float x0 = static_cast<float>(x) * ts;
-      const float y0 = static_cast<float>(y) * ts;
-      const float x1 = x0 + ts;
-      const float y1 = y0 + ts;
-      const Vec4 hoverColor{1.0f, 1.0f, 1.0f, 0.4f};
-      m_renderer.DrawLine({x0, y0}, {x1, y0}, hoverColor);
-      m_renderer.DrawLine({x1, y0}, {x1, y1}, hoverColor);
-      m_renderer.DrawLine({x1, y1}, {x0, y1}, hoverColor);
-      m_renderer.DrawLine({x0, y1}, {x0, y0}, hoverColor);
+      m_renderer.EndFrame();
+      m_sceneFramebuffer.Unbind();
+      glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
     }
-
-    m_renderer.EndFrame();
 
     ui::DrawSceneOverlay(m_uiState, fps, m_camera.GetZoom(), m_editor.selection.hasHover,
                          m_editor.selection.hoverCell, m_editor.currentTileIndex);

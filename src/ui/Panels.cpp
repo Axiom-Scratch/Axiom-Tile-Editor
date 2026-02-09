@@ -1,5 +1,6 @@
 #include "ui/Panels.h"
 
+#include "render/Framebuffer.h"
 #include "render/Texture.h"
 
 #include <imgui.h>
@@ -469,7 +470,7 @@ void DrawToolbar(EditorUIState& state, EditorUIOutput& out, EditorState& editor,
   ImGui::End();
 }
 
-void DrawSceneView(EditorUIState& state, EditorUIOutput& out) {
+void DrawSceneView(EditorUIState& state, EditorUIOutput& out, Framebuffer& framebuffer) {
   ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
                            ImGuiWindowFlags_NoBackground;
   if (!ImGui::Begin("Scene View", nullptr, flags)) {
@@ -485,16 +486,25 @@ void DrawSceneView(EditorUIState& state, EditorUIOutput& out) {
   ImGui::SameLine();
   ImGui::Checkbox("Grid", &state.showGrid);
 
-  ImVec2 scenePos = ImGui::GetCursorScreenPos();
   ImVec2 sceneSize = ImGui::GetContentRegionAvail();
   if (sceneSize.x < 1.0f) sceneSize.x = 1.0f;
   if (sceneSize.y < 1.0f) sceneSize.y = 1.0f;
 
-  ImVec2 mousePos = ImGui::GetIO().MousePos;
-  const bool hovered = mousePos.x >= scenePos.x && mousePos.y >= scenePos.y &&
-                       mousePos.x <= scenePos.x + sceneSize.x && mousePos.y <= scenePos.y + sceneSize.y;
-  state.sceneHovered = hovered && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-  state.sceneRect = {scenePos.x, scenePos.y, sceneSize.x, sceneSize.y};
+  const ImGuiIO& io = ImGui::GetIO();
+  const int fbWidth = std::max(1, static_cast<int>(sceneSize.x * io.DisplayFramebufferScale.x));
+  const int fbHeight = std::max(1, static_cast<int>(sceneSize.y * io.DisplayFramebufferScale.y));
+  framebuffer.Resize(fbWidth, fbHeight);
+
+  ImTextureID texId = static_cast<ImTextureID>(static_cast<intptr_t>(framebuffer.GetColorTexture()));
+#if IMGUI_VERSION_NUM >= 19200
+  ImGui::Image(ImTextureRef(texId), sceneSize, ImVec2(0, 1), ImVec2(1, 0));
+#else
+  ImGui::Image(texId, sceneSize, ImVec2(0, 1), ImVec2(1, 0));
+#endif
+  state.sceneHovered = ImGui::IsItemHovered();
+  ImVec2 rectMin = ImGui::GetItemRectMin();
+  ImVec2 rectMax = ImGui::GetItemRectMax();
+  state.sceneRect = {rectMin.x, rectMin.y, rectMax.x - rectMin.x, rectMax.y - rectMin.y};
 
   ImGui::End();
 }
@@ -945,7 +955,8 @@ const std::string& GetCurrentMapPath(const EditorUIState& state) {
 EditorUIOutput DrawEditorUI(EditorUIState& state,
                             EditorState& editor,
                             Log& log,
-                            const Texture& atlasTexture) {
+                            const Texture& atlasTexture,
+                            Framebuffer& sceneFramebuffer) {
   EditorUIOutput out{};
 
   if (state.themeDirty) {
@@ -956,7 +967,7 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
   BuildDockSpace(state);
   DrawMenuBar(state, out);
   DrawToolbar(state, out, editor, atlasTexture);
-  DrawSceneView(state, out);
+  DrawSceneView(state, out, sceneFramebuffer);
 
   if (state.showHierarchy) {
     DrawHierarchy(editor);

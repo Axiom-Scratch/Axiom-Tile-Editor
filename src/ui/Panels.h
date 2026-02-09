@@ -11,6 +11,7 @@
 
 namespace te {
 class Texture;
+class Framebuffer;
 }
 
 namespace te::ui {
@@ -96,7 +97,8 @@ const std::string& GetCurrentMapPath(const EditorUIState& state);
 EditorUIOutput DrawEditorUI(EditorUIState& state,
                             EditorState& editor,
                             Log& log,
-                            const Texture& atlasTexture);
+                            const Texture& atlasTexture,
+                            Framebuffer& sceneFramebuffer);
 
 void DrawSceneOverlay(const EditorUIState& state,
                       float fps,

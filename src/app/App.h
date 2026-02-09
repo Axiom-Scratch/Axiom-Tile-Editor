@@ -8,6 +8,7 @@
 #include "render/OrthoCamera.h"
 #include "render/Renderer2D.h"
 #include "render/Texture.h"
+#include "render/Framebuffer.h"
 #include "ui/ImGuiLayer.h"
 #include "ui/Panels.h"
 #include "util/Log.h"
@@ -30,6 +31,7 @@ private:
   Input m_input;
   Renderer2D m_renderer;
   Texture m_atlasTexture;
+  Framebuffer m_sceneFramebuffer;
   OrthoCamera m_camera;
   EditorState m_editor;
   ImGuiLayer m_imgui;
