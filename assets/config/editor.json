@@ -1,5 +1,13 @@
 {
   "current": "assets/maps/map.json",
   "recent": [
-  ]
+    "assets/maps/map.json"
+  ],
+  "windowWidth": 1280,
+  "windowHeight": 720,
+  "atlasPath": "assets/textures/atlas.png",
+  "atlasTileW": 64,
+  "atlasTileH": 32,
+  "atlasCols": 1,
+  "atlasRows": 1
 }

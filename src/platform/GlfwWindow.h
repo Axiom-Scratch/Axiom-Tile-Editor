@@ -26,6 +26,7 @@ public:
 
   GLFWwindow* GetNative() const;
   Vec2i GetFramebufferSize() const;
+  Vec2i GetWindowSize() const;
 
   int GetMajorVersion() const { return m_glMajor; }
   int GetMinorVersion() const { return m_glMinor; }

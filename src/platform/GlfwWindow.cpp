@@ -107,4 +107,12 @@ Vec2i GlfwWindow::GetFramebufferSize() const {
   return size;
 }
 
+Vec2i GlfwWindow::GetWindowSize() const {
+  Vec2i size{};
+  if (m_window) {
+    glfwGetWindowSize(m_window, &size.x, &size.y);
+  }
+  return size;
+}
+
 } // namespace te

@@ -8,6 +8,7 @@
 #include "editor/TileMap.h"
 
 #include <string>
+#include <vector>
 
 namespace te {
 
@@ -15,6 +16,19 @@ enum class StrokeButton {
   None,
   Left,
   Right
+};
+
+enum class Tool {
+  Paint,
+  Erase,
+  Pan
+};
+
+struct Layer {
+  std::string name;
+  bool visible = true;
+  bool locked = false;
+  float opacity = 1.0f;
 };
 
 struct EditorInput {
@@ -35,6 +49,10 @@ struct EditorState {
   Atlas atlas;
 
   int currentTileIndex = 1;
+  Tool currentTool = Tool::Paint;
+  std::vector<Layer> layers;
+  int selectedLayer = -1;
+  bool hasUnsavedChanges = false;
   StrokeButton strokeButton = StrokeButton::None;
   int strokeTileId = 0;
   PaintCommand currentStroke;

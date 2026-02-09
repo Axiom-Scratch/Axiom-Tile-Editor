@@ -1,8 +1,8 @@
 #pragma once
 
 #include "app/Config.h"
+#include "editor/Atlas.h"
 #include "editor/Tools.h"
-#include "render/OrthoCamera.h"
 #include "util/Log.h"
 
 #include <string>
@@ -14,26 +14,55 @@ class Texture;
 
 namespace te::ui {
 
-struct HoverInfo {
-  bool hasHover = false;
-  Vec2i cell{};
+struct SceneViewRect {
+  float x = 0.0f;
+  float y = 0.0f;
+  float width = 0.0f;
+  float height = 0.0f;
 };
 
 struct EditorUIState {
-  bool showPalette = true;
+  std::string currentMapPath;
+  std::vector<std::string> recentFiles;
+  Atlas lastAtlas{};
+  int windowWidth = 0;
+  int windowHeight = 0;
+
+  bool showHierarchy = true;
   bool showInspector = true;
-  bool showLog = true;
+  bool showProject = true;
+  bool showConsole = true;
+  bool showTilePalette = true;
   bool showGrid = true;
-  bool showFps = false;
+
+  bool showFps = true;
   bool vsyncEnabled = true;
   bool vsyncDirty = false;
+  bool snapEnabled = false;
 
-  std::string currentMapPath = "assets/maps/map.json";
-  std::vector<std::string> recentFiles;
+  bool filterInfo = true;
+  bool filterWarn = true;
+  bool filterError = true;
+  char consoleFilter[128]{};
 
   char saveAsBuffer[256]{};
+  char atlasPathBuffer[256]{};
+  char layerNameBuffer[64]{};
+  int pendingMapWidth = 0;
+  int pendingMapHeight = 0;
+
   bool openSaveAsModal = false;
   bool openAboutModal = false;
+  bool openResizeModal = false;
+  bool openUnsavedModal = false;
+
+  std::string pendingLoadPath;
+
+  SceneViewRect sceneRect{};
+  bool sceneHovered = false;
+
+  bool dockInitialized = false;
+  int lastLayerSelection = -2;
 };
 
 struct EditorUIOutput {
@@ -44,25 +73,31 @@ struct EditorUIOutput {
   bool requestRedo = false;
   bool requestQuit = false;
   bool requestReloadAtlas = false;
+  bool requestFocus = false;
+  bool requestResizeMap = false;
+
   std::string loadPath;
   std::string saveAsPath;
+  std::string atlasPath;
+  int resizeWidth = 0;
+  int resizeHeight = 0;
 };
 
-void InitEditorUI(EditorUIState& state);
-void ShutdownEditorUI(EditorUIState& state);
+void LoadEditorConfig(EditorUIState& state);
+void SaveEditorConfig(const EditorUIState& state);
 void AddRecentFile(EditorUIState& state, const std::string& path);
 const std::string& GetCurrentMapPath(const EditorUIState& state);
 
 EditorUIOutput DrawEditorUI(EditorUIState& state,
                             EditorState& editor,
-                            const OrthoCamera& camera,
-                            const HoverInfo& hover,
                             Log& log,
                             const Texture& atlasTexture);
 
-void DrawDockSpace();
-void DrawTilePalette(EditorState& state, const Texture& atlasTexture);
-void DrawInspector(const EditorState& state, const OrthoCamera& camera, const HoverInfo& hover);
-void DrawLog(Log& log);
+void DrawSceneOverlay(const EditorUIState& state,
+                      float fps,
+                      float zoom,
+                      bool hasHover,
+                      Vec2i hoverCell,
+                      int tileIndex);
 
 } // namespace te::ui

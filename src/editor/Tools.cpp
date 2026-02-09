@@ -40,6 +40,7 @@ void ApplyPaint(EditorState& state, int cellX, int cellY) {
 
   state.tileMap.SetTile(cellX, cellY, after);
   AddOrUpdateChange(state.currentStroke, index, before, after);
+  state.hasUnsavedChanges = true;
 }
 
 } // namespace
@@ -52,6 +53,11 @@ void InitEditor(EditorState& state, int width, int height, int tileSize) {
   state.atlas.cols = 0;
   state.atlas.rows = 0;
   state.currentTileIndex = 1;
+  state.currentTool = Tool::Paint;
+  state.layers.clear();
+  state.layers.push_back({"Layer 0", true, false, 1.0f});
+  state.selectedLayer = -1;
+  state.hasUnsavedChanges = false;
   state.strokeButton = StrokeButton::None;
   state.strokeTileId = 0;
   state.currentStroke.changes.clear();
@@ -121,15 +127,24 @@ bool LoadTileMap(EditorState& state, const std::string& path, std::string* error
   state.tileMap.SetData(width, height, tileSize, std::move(data));
   state.atlas = loadedAtlas;
   state.history.Clear();
+  state.hasUnsavedChanges = false;
   return true;
 }
 
 bool Undo(EditorState& state) {
-  return state.history.Undo(state.tileMap);
+  const bool result = state.history.Undo(state.tileMap);
+  if (result) {
+    state.hasUnsavedChanges = true;
+  }
+  return result;
 }
 
 bool Redo(EditorState& state) {
-  return state.history.Redo(state.tileMap);
+  const bool result = state.history.Redo(state.tileMap);
+  if (result) {
+    state.hasUnsavedChanges = true;
+  }
+  return result;
 }
 
 } // namespace te

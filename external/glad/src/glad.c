@@ -8,6 +8,7 @@ PFNGLBLENDFUNCPROC glad_glBlendFunc = NULL;
 PFNGLCLEARCOLORPROC glad_glClearColor = NULL;
 PFNGLCLEARPROC glad_glClear = NULL;
 PFNGLVIEWPORTPROC glad_glViewport = NULL;
+PFNGLSCISSORPROC glad_glScissor = NULL;
 PFNGLGETINTEGERVPROC glad_glGetIntegerv = NULL;
 PFNGLGETSTRINGPROC glad_glGetString = NULL;
 
@@ -64,6 +65,7 @@ int gladLoadGLLoader(GLADloadproc load) {
   glad_glClearColor = (PFNGLCLEARCOLORPROC)load("glClearColor");
   glad_glClear = (PFNGLCLEARPROC)load("glClear");
   glad_glViewport = (PFNGLVIEWPORTPROC)load("glViewport");
+  glad_glScissor = (PFNGLSCISSORPROC)load("glScissor");
   glad_glGetIntegerv = (PFNGLGETINTEGERVPROC)load("glGetIntegerv");
   glad_glGetString = (PFNGLGETSTRINGPROC)load("glGetString");
 

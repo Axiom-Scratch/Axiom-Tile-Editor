@@ -21,6 +21,7 @@ GLAD_API_CALL extern PFNGLBLENDFUNCPROC glad_glBlendFunc;
 GLAD_API_CALL extern PFNGLCLEARCOLORPROC glad_glClearColor;
 GLAD_API_CALL extern PFNGLCLEARPROC glad_glClear;
 GLAD_API_CALL extern PFNGLVIEWPORTPROC glad_glViewport;
+GLAD_API_CALL extern PFNGLSCISSORPROC glad_glScissor;
 GLAD_API_CALL extern PFNGLGETINTEGERVPROC glad_glGetIntegerv;
 GLAD_API_CALL extern PFNGLGETSTRINGPROC glad_glGetString;
 
@@ -72,6 +73,7 @@ GLAD_API_CALL extern PFNGLDEBUGMESSAGECONTROLPROC glad_glDebugMessageControl;
 #define glClearColor glad_glClearColor
 #define glClear glad_glClear
 #define glViewport glad_glViewport
+#define glScissor glad_glScissor
 #define glGetIntegerv glad_glGetIntegerv
 #define glGetString glad_glGetString
 

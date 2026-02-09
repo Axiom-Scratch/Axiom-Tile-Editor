@@ -77,11 +77,13 @@ int GetTileSelectAction(const Actions& actions) {
 } // namespace
 
 bool App::Init() {
-  if (!m_window.Create(AppConfig::WindowWidth, AppConfig::WindowHeight, AppConfig::WindowTitle)) {
+  ui::LoadEditorConfig(m_uiState);
+  const int windowWidth = m_uiState.windowWidth > 0 ? m_uiState.windowWidth : AppConfig::WindowWidth;
+  const int windowHeight = m_uiState.windowHeight > 0 ? m_uiState.windowHeight : AppConfig::WindowHeight;
+  if (!m_window.Create(windowWidth, windowHeight, AppConfig::WindowTitle)) {
     return false;
   }
 
-  ui::InitEditorUI(m_uiState);
   m_window.SetVsync(m_uiState.vsyncEnabled);
 
   if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
@@ -104,6 +106,18 @@ bool App::Init() {
   }
 
   InitEditor(m_editor, AppConfig::MapWidth, AppConfig::MapHeight, AppConfig::TileSize);
+  if (!m_uiState.lastAtlas.path.empty()) {
+    m_editor.atlas = m_uiState.lastAtlas;
+  }
+  if (m_editor.atlas.path.empty()) {
+    m_editor.atlas.path = "assets/textures/atlas.png";
+  }
+  if (m_editor.atlas.tileW <= 0) {
+    m_editor.atlas.tileW = m_editor.tileMap.GetTileSize();
+  }
+  if (m_editor.atlas.tileH <= 0) {
+    m_editor.atlas.tileH = m_editor.tileMap.GetTileSize();
+  }
   m_atlasTexture.LoadFromFile(m_editor.atlas.path);
   ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
 
@@ -132,6 +146,7 @@ void App::Run() {
   while (!m_window.ShouldClose()) {
     const double now = glfwGetTime();
     const float dt = static_cast<float>(now - lastTime);
+    const float fps = dt > 0.0f ? (1.0f / dt) : 0.0f;
     lastTime = now;
 
     m_actions.BeginFrame();
@@ -141,14 +156,44 @@ void App::Run() {
     m_imgui.NewFrame();
 
     m_framebuffer = m_window.GetFramebufferSize();
-    glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
 
     ImGuiIO& io = ImGui::GetIO();
     const bool imguiActive = ImGui::GetCurrentContext() != nullptr;
-    const bool blockMouse = imguiActive && io.WantCaptureMouse;
+
+    ui::EditorUIOutput uiOutput = ui::DrawEditorUI(m_uiState, m_editor, m_log, m_atlasTexture);
+    if (m_uiState.vsyncDirty) {
+      m_window.SetVsync(m_uiState.vsyncEnabled);
+      m_uiState.vsyncDirty = false;
+    }
+
     const bool blockKeys = imguiActive && io.WantCaptureKeyboard;
-    const bool allowMouse = !blockMouse;
+    const bool popupOpen = imguiActive && ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+    const bool blockMouse = popupOpen || (imguiActive && io.WantCaptureMouse && ImGui::IsAnyItemHovered());
+    const bool allowMouse = m_uiState.sceneHovered && !blockMouse;
     const bool allowKeyboard = !blockKeys;
+
+    const float scaleX = io.DisplayFramebufferScale.x;
+    const float scaleY = io.DisplayFramebufferScale.y;
+    Vec2i sceneViewport = m_framebuffer;
+    int sceneX = 0;
+    int sceneY = 0;
+    bool hasScene = m_uiState.sceneRect.width > 1.0f && m_uiState.sceneRect.height > 1.0f;
+    if (hasScene) {
+      const float scenePosX = m_uiState.sceneRect.x * scaleX;
+      const float scenePosY = m_uiState.sceneRect.y * scaleY;
+      const float sceneWidth = m_uiState.sceneRect.width * scaleX;
+      const float sceneHeight = m_uiState.sceneRect.height * scaleY;
+      sceneViewport.x = static_cast<int>(sceneWidth);
+      sceneViewport.y = static_cast<int>(sceneHeight);
+      sceneX = static_cast<int>(scenePosX);
+      sceneY = static_cast<int>(static_cast<float>(m_framebuffer.y) - (scenePosY + sceneHeight));
+      if (sceneViewport.x <= 0 || sceneViewport.y <= 0) {
+        hasScene = false;
+        sceneViewport = m_framebuffer;
+        sceneX = 0;
+        sceneY = 0;
+      }
+    }
 
     auto handleUndo = [&]() {
       EndStroke(m_editor);
@@ -165,6 +210,7 @@ void App::Run() {
       if (SaveTileMap(m_editor, path)) {
         Log::Info("Saved tilemap to " + path);
         ui::AddRecentFile(m_uiState, path);
+        m_editor.hasUnsavedChanges = false;
       } else {
         Log::Error("Failed to save tilemap.");
       }
@@ -183,24 +229,48 @@ void App::Run() {
       }
     };
 
+    if (uiOutput.requestFocus) {
+      const float mapWorldWidth = static_cast<float>(m_editor.tileMap.GetWidth() * m_editor.tileMap.GetTileSize());
+      const float mapWorldHeight = static_cast<float>(m_editor.tileMap.GetHeight() * m_editor.tileMap.GetTileSize());
+      m_camera.SetPosition({mapWorldWidth * 0.5f, mapWorldHeight * 0.5f});
+      m_camera.SetZoom(1.0f);
+    }
+
+    if (uiOutput.requestResizeMap) {
+      EndStroke(m_editor);
+      m_editor.tileMap.Resize(uiOutput.resizeWidth, uiOutput.resizeHeight, m_editor.tileMap.GetTileSize());
+      m_editor.history.Clear();
+      m_editor.hasUnsavedChanges = true;
+      m_uiState.pendingMapWidth = 0;
+      m_uiState.pendingMapHeight = 0;
+    }
+
+    if (uiOutput.requestReloadAtlas) {
+      if (!uiOutput.atlasPath.empty()) {
+        m_editor.atlas.path = uiOutput.atlasPath;
+      }
+      m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+      ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
+    }
+
     const std::string& currentPath = ui::GetCurrentMapPath(m_uiState);
-    if (allowKeyboard && m_actions.Get(Action::Undo).pressed) {
+    if (!uiOutput.requestUndo && allowKeyboard && m_actions.Get(Action::Undo).pressed) {
       handleUndo();
     }
 
-    if (allowKeyboard && m_actions.Get(Action::Redo).pressed) {
+    if (!uiOutput.requestRedo && allowKeyboard && m_actions.Get(Action::Redo).pressed) {
       handleRedo();
     }
 
-    if (allowKeyboard && m_actions.Get(Action::Save).pressed) {
+    if (!uiOutput.requestSave && allowKeyboard && m_actions.Get(Action::Save).pressed) {
       handleSave(currentPath);
     }
 
-    if (allowKeyboard && m_actions.Get(Action::Load).pressed) {
+    if (!uiOutput.requestLoad && allowKeyboard && m_actions.Get(Action::Load).pressed) {
       handleLoad(currentPath);
     }
 
-    if (allowKeyboard && m_actions.Get(Action::Quit).pressed) {
+    if (!uiOutput.requestQuit && allowKeyboard && m_actions.Get(Action::Quit).pressed) {
       m_window.SetShouldClose(true);
     }
 
@@ -223,33 +293,84 @@ void App::Run() {
       }
     }
 
-    if (allowMouse && m_actions.Get(Action::PanDrag).down) {
-      Vec2 delta = m_input.GetMouseDelta();
-      camPos.x -= delta.x / m_camera.GetZoom();
-      camPos.y += delta.y / m_camera.GetZoom();
+    if (allowMouse) {
+      const bool panToolActive = m_editor.currentTool == Tool::Pan;
+      const ActionState& panAction = m_actions.Get(Action::PanDrag);
+      const ActionState& paintAction = m_actions.Get(Action::Paint);
+      if (panAction.down || (panToolActive && paintAction.down)) {
+        Vec2 delta = m_input.GetMouseDelta();
+        delta.x *= scaleX;
+        delta.y *= scaleY;
+        camPos.x -= delta.x / m_camera.GetZoom();
+        camPos.y += delta.y / m_camera.GetZoom();
+      }
     }
 
     m_camera.SetPosition(camPos);
 
-    const Vec2 mouseWorld = m_camera.ScreenToWorld(m_input.GetMousePos(), m_framebuffer);
+    Vec2 mouseWorld{};
+    if (hasScene) {
+      const Vec2 mousePos = m_input.GetMousePos();
+      const Vec2 mousePosFb{mousePos.x * scaleX, mousePos.y * scaleY};
+      const Vec2 scenePosFb{m_uiState.sceneRect.x * scaleX, m_uiState.sceneRect.y * scaleY};
+      const Vec2 localPos{mousePosFb.x - scenePosFb.x, mousePosFb.y - scenePosFb.y};
+      mouseWorld = m_camera.ScreenToWorld(localPos, sceneViewport);
+    } else {
+      const Vec2 mousePos = m_input.GetMousePos();
+      const Vec2 mousePosFb{mousePos.x * scaleX, mousePos.y * scaleY};
+      mouseWorld = m_camera.ScreenToWorld(mousePosFb, sceneViewport);
+    }
+    if (!m_uiState.sceneHovered) {
+      mouseWorld = {-100000.0f, -100000.0f};
+    }
 
     EditorInput editorInput{};
     editorInput.mouseWorld = mouseWorld;
     const ActionState& paint = m_actions.Get(Action::Paint);
     const ActionState& erase = m_actions.Get(Action::Erase);
-    editorInput.leftDown = allowMouse && paint.down;
-    editorInput.rightDown = allowMouse && erase.down;
-    editorInput.leftPressed = allowMouse && paint.pressed;
-    editorInput.rightPressed = allowMouse && erase.pressed;
-    editorInput.leftReleased = allowMouse && paint.released;
-    editorInput.rightReleased = allowMouse && erase.released;
+    bool leftDown = allowMouse && paint.down;
+    bool rightDown = allowMouse && erase.down;
+    bool leftPressed = allowMouse && paint.pressed;
+    bool rightPressed = allowMouse && erase.pressed;
+    bool leftReleased = allowMouse && paint.released;
+    bool rightReleased = allowMouse && erase.released;
+
+    if (m_editor.currentTool == Tool::Erase) {
+      rightDown = rightDown || leftDown;
+      rightPressed = rightPressed || leftPressed;
+      rightReleased = rightReleased || leftReleased;
+      leftDown = false;
+      leftPressed = false;
+      leftReleased = false;
+    } else if (m_editor.currentTool == Tool::Pan) {
+      leftDown = false;
+      leftPressed = false;
+      leftReleased = false;
+      rightDown = false;
+      rightPressed = false;
+      rightReleased = false;
+    }
+
+    editorInput.leftDown = leftDown;
+    editorInput.rightDown = rightDown;
+    editorInput.leftPressed = leftPressed;
+    editorInput.rightPressed = rightPressed;
+    editorInput.leftReleased = leftReleased;
+    editorInput.rightReleased = rightReleased;
     editorInput.tileSelect = allowKeyboard ? GetTileSelectAction(m_actions) : 0;
     UpdateEditor(m_editor, editorInput);
 
+    glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
     glClearColor(0.08f, 0.08f, 0.09f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    m_renderer.BeginFrame(m_camera.GetViewProjection(m_framebuffer));
+    if (hasScene) {
+      glEnable(GL_SCISSOR_TEST);
+      glScissor(sceneX, sceneY, sceneViewport.x, sceneViewport.y);
+      glViewport(sceneX, sceneY, sceneViewport.x, sceneViewport.y);
+    }
+
+    m_renderer.BeginFrame(m_camera.GetViewProjection(sceneViewport));
 
     for (int y = 0; y < m_editor.tileMap.GetHeight(); ++y) {
       for (int x = 0; x < m_editor.tileMap.GetWidth(); ++x) {
@@ -309,13 +430,12 @@ void App::Run() {
     }
 
     m_renderer.EndFrame();
-
-    ui::HoverInfo hoverInfo{m_editor.selection.hasHover, m_editor.selection.hoverCell};
-    ui::EditorUIOutput uiOutput = ui::DrawEditorUI(m_uiState, m_editor, m_camera, hoverInfo, m_log, m_atlasTexture);
-    if (m_uiState.vsyncDirty) {
-      m_window.SetVsync(m_uiState.vsyncEnabled);
-      m_uiState.vsyncDirty = false;
+    if (hasScene) {
+      glDisable(GL_SCISSOR_TEST);
     }
+
+    ui::DrawSceneOverlay(m_uiState, fps, m_camera.GetZoom(), m_editor.selection.hasHover,
+                         m_editor.selection.hoverCell, m_editor.currentTileIndex);
     if (uiOutput.requestUndo) {
       handleUndo();
     }
@@ -332,13 +452,13 @@ void App::Run() {
     if (uiOutput.requestSaveAs && !uiOutput.saveAsPath.empty()) {
       handleSave(uiOutput.saveAsPath);
     }
-    if (uiOutput.requestReloadAtlas) {
-      m_atlasTexture.LoadFromFile(m_editor.atlas.path);
-      ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
-    }
     if (uiOutput.requestQuit) {
       m_window.SetShouldClose(true);
     }
+    Vec2i windowSize = m_window.GetWindowSize();
+    m_uiState.windowWidth = windowSize.x;
+    m_uiState.windowHeight = windowSize.y;
+
     m_imgui.Render();
 
     m_window.SwapBuffers();
@@ -348,7 +468,11 @@ void App::Run() {
 }
 
 void App::Shutdown() {
-  ui::ShutdownEditorUI(m_uiState);
+  Vec2i windowSize = m_window.GetWindowSize();
+  m_uiState.windowWidth = windowSize.x;
+  m_uiState.windowHeight = windowSize.y;
+  m_uiState.lastAtlas = m_editor.atlas;
+  ui::SaveEditorConfig(m_uiState);
   m_imgui.Shutdown();
   m_renderer.Shutdown();
   m_window.Destroy();

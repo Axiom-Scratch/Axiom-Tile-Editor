@@ -4,6 +4,8 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#include <filesystem>
+
 namespace te {
 
 bool ImGuiLayer::Init(GLFWwindow* window) {
@@ -16,6 +18,9 @@ bool ImGuiLayer::Init(GLFWwindow* window) {
 
   ImGuiIO& io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  std::filesystem::create_directories("assets/config");
+  static const std::string iniPath = "assets/config/imgui.ini";
+  io.IniFilename = iniPath.c_str();
 
   ImGui::StyleColorsDark();
 

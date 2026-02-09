@@ -86,6 +86,7 @@ add_library(glad STATIC
 target_include_directories(glad PUBLIC
   external/glad/include
 )
+target_compile_options(glad PRIVATE ${TE_WARNINGS_DEPS})
 
 add_library(stb_image STATIC
   external/stb/stb_image.cpp
@@ -94,6 +95,7 @@ add_library(stb_image STATIC
 target_include_directories(stb_image PUBLIC
   external/stb
 )
+target_compile_options(stb_image PRIVATE ${TE_WARNINGS_DEPS})
 
 set(IMGUI_SOURCES
   ${imgui_SOURCE_DIR}/imgui.cpp
@@ -108,10 +110,11 @@ add_library(imgui STATIC
   ${IMGUI_SOURCES}
 )
 
-target_include_directories(imgui PUBLIC
+target_include_directories(imgui SYSTEM PUBLIC
   ${imgui_SOURCE_DIR}
   ${imgui_SOURCE_DIR}/backends
 )
+target_compile_options(imgui PRIVATE ${TE_WARNINGS_DEPS})
 
 target_compile_definitions(imgui PUBLIC
   IMGUI_IMPL_OPENGL_LOADER_GLAD
@@ -132,10 +135,21 @@ add_executable(tile_editor
 
 target_include_directories(tile_editor PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_include_directories(tile_editor SYSTEM PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/external
   ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
   ${CMAKE_CURRENT_SOURCE_DIR}/external/stb
 )
+
+if (DEFINED glfw_SOURCE_DIR)
+  target_include_directories(tile_editor SYSTEM PRIVATE ${glfw_SOURCE_DIR}/include)
+endif()
+
+if (EXISTS ${GLFW_SUBMODULE_DIR}/include)
+  target_include_directories(tile_editor SYSTEM PRIVATE ${GLFW_SUBMODULE_DIR}/include)
+endif()
 
 target_link_libraries(tile_editor PRIVATE
   ${GLFW_TARGET}
