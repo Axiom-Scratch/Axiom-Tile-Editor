@@ -1,0 +1,124 @@
+#ifndef GLAD_GLAD_H
+#define GLAD_GLAD_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <GL/glcorearb.h>
+
+#ifndef GLAD_API_CALL
+#define GLAD_API_CALL
+#endif
+
+typedef void* (*GLADloadproc)(const char* name);
+
+GLAD_API_CALL int gladLoadGLLoader(GLADloadproc load);
+
+GLAD_API_CALL extern PFNGLENABLEPROC glad_glEnable;
+GLAD_API_CALL extern PFNGLDISABLEPROC glad_glDisable;
+GLAD_API_CALL extern PFNGLBLENDFUNCPROC glad_glBlendFunc;
+GLAD_API_CALL extern PFNGLCLEARCOLORPROC glad_glClearColor;
+GLAD_API_CALL extern PFNGLCLEARPROC glad_glClear;
+GLAD_API_CALL extern PFNGLVIEWPORTPROC glad_glViewport;
+GLAD_API_CALL extern PFNGLGETINTEGERVPROC glad_glGetIntegerv;
+GLAD_API_CALL extern PFNGLGETSTRINGPROC glad_glGetString;
+
+GLAD_API_CALL extern PFNGLCREATESHADERPROC glad_glCreateShader;
+GLAD_API_CALL extern PFNGLSHADERSOURCEPROC glad_glShaderSource;
+GLAD_API_CALL extern PFNGLCOMPILESHADERPROC glad_glCompileShader;
+GLAD_API_CALL extern PFNGLGETSHADERIVPROC glad_glGetShaderiv;
+GLAD_API_CALL extern PFNGLGETSHADERINFOLOGPROC glad_glGetShaderInfoLog;
+GLAD_API_CALL extern PFNGLCREATEPROGRAMPROC glad_glCreateProgram;
+GLAD_API_CALL extern PFNGLATTACHSHADERPROC glad_glAttachShader;
+GLAD_API_CALL extern PFNGLLINKPROGRAMPROC glad_glLinkProgram;
+GLAD_API_CALL extern PFNGLGETPROGRAMIVPROC glad_glGetProgramiv;
+GLAD_API_CALL extern PFNGLGETPROGRAMINFOLOGPROC glad_glGetProgramInfoLog;
+GLAD_API_CALL extern PFNGLDELETESHADERPROC glad_glDeleteShader;
+GLAD_API_CALL extern PFNGLDELETEPROGRAMPROC glad_glDeleteProgram;
+GLAD_API_CALL extern PFNGLUSEPROGRAMPROC glad_glUseProgram;
+GLAD_API_CALL extern PFNGLGETUNIFORMLOCATIONPROC glad_glGetUniformLocation;
+GLAD_API_CALL extern PFNGLUNIFORM1IPROC glad_glUniform1i;
+GLAD_API_CALL extern PFNGLUNIFORM4FPROC glad_glUniform4f;
+GLAD_API_CALL extern PFNGLUNIFORMMATRIX4FVPROC glad_glUniformMatrix4fv;
+
+GLAD_API_CALL extern PFNGLGENVERTEXARRAYSPROC glad_glGenVertexArrays;
+GLAD_API_CALL extern PFNGLBINDVERTEXARRAYPROC glad_glBindVertexArray;
+GLAD_API_CALL extern PFNGLDELETEVERTEXARRAYSPROC glad_glDeleteVertexArrays;
+GLAD_API_CALL extern PFNGLGENBUFFERSPROC glad_glGenBuffers;
+GLAD_API_CALL extern PFNGLBINDBUFFERPROC glad_glBindBuffer;
+GLAD_API_CALL extern PFNGLBUFFERDATAPROC glad_glBufferData;
+GLAD_API_CALL extern PFNGLBUFFERSUBDATAPROC glad_glBufferSubData;
+GLAD_API_CALL extern PFNGLDELETEBUFFERSPROC glad_glDeleteBuffers;
+GLAD_API_CALL extern PFNGLENABLEVERTEXATTRIBARRAYPROC glad_glEnableVertexAttribArray;
+GLAD_API_CALL extern PFNGLVERTEXATTRIBPOINTERPROC glad_glVertexAttribPointer;
+GLAD_API_CALL extern PFNGLDRAWELEMENTSPROC glad_glDrawElements;
+GLAD_API_CALL extern PFNGLDRAWARRAYSPROC glad_glDrawArrays;
+
+GLAD_API_CALL extern PFNGLGENTEXTURESPROC glad_glGenTextures;
+GLAD_API_CALL extern PFNGLBINDTEXTUREPROC glad_glBindTexture;
+GLAD_API_CALL extern PFNGLTEXPARAMETERIPROC glad_glTexParameteri;
+GLAD_API_CALL extern PFNGLTEXIMAGE2DPROC glad_glTexImage2D;
+GLAD_API_CALL extern PFNGLGENERATEMIPMAPPROC glad_glGenerateMipmap;
+GLAD_API_CALL extern PFNGLDELETETEXTURESPROC glad_glDeleteTextures;
+GLAD_API_CALL extern PFNGLACTIVETEXTUREPROC glad_glActiveTexture;
+
+GLAD_API_CALL extern PFNGLDEBUGMESSAGECALLBACKPROC glad_glDebugMessageCallback;
+GLAD_API_CALL extern PFNGLDEBUGMESSAGECONTROLPROC glad_glDebugMessageControl;
+
+#define glEnable glad_glEnable
+#define glDisable glad_glDisable
+#define glBlendFunc glad_glBlendFunc
+#define glClearColor glad_glClearColor
+#define glClear glad_glClear
+#define glViewport glad_glViewport
+#define glGetIntegerv glad_glGetIntegerv
+#define glGetString glad_glGetString
+
+#define glCreateShader glad_glCreateShader
+#define glShaderSource glad_glShaderSource
+#define glCompileShader glad_glCompileShader
+#define glGetShaderiv glad_glGetShaderiv
+#define glGetShaderInfoLog glad_glGetShaderInfoLog
+#define glCreateProgram glad_glCreateProgram
+#define glAttachShader glad_glAttachShader
+#define glLinkProgram glad_glLinkProgram
+#define glGetProgramiv glad_glGetProgramiv
+#define glGetProgramInfoLog glad_glGetProgramInfoLog
+#define glDeleteShader glad_glDeleteShader
+#define glDeleteProgram glad_glDeleteProgram
+#define glUseProgram glad_glUseProgram
+#define glGetUniformLocation glad_glGetUniformLocation
+#define glUniform1i glad_glUniform1i
+#define glUniform4f glad_glUniform4f
+#define glUniformMatrix4fv glad_glUniformMatrix4fv
+
+#define glGenVertexArrays glad_glGenVertexArrays
+#define glBindVertexArray glad_glBindVertexArray
+#define glDeleteVertexArrays glad_glDeleteVertexArrays
+#define glGenBuffers glad_glGenBuffers
+#define glBindBuffer glad_glBindBuffer
+#define glBufferData glad_glBufferData
+#define glBufferSubData glad_glBufferSubData
+#define glDeleteBuffers glad_glDeleteBuffers
+#define glEnableVertexAttribArray glad_glEnableVertexAttribArray
+#define glVertexAttribPointer glad_glVertexAttribPointer
+#define glDrawElements glad_glDrawElements
+#define glDrawArrays glad_glDrawArrays
+
+#define glGenTextures glad_glGenTextures
+#define glBindTexture glad_glBindTexture
+#define glTexParameteri glad_glTexParameteri
+#define glTexImage2D glad_glTexImage2D
+#define glGenerateMipmap glad_glGenerateMipmap
+#define glDeleteTextures glad_glDeleteTextures
+#define glActiveTexture glad_glActiveTexture
+
+#define glDebugMessageCallback glad_glDebugMessageCallback
+#define glDebugMessageControl glad_glDebugMessageControl
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
