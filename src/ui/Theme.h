@@ -6,17 +6,19 @@ namespace te::ui {
 
 enum class ThemePreset {
   Dark,
+  TrueDark,
   UnityDark,
   Light
 };
 
 struct ThemeSettings {
-  ThemePreset preset = ThemePreset::UnityDark;
-  float globalAlpha = 0.95f;
-  float windowBgAlpha = 0.75f;
-  float frameBgAlpha = 0.85f;
-  float popupBgAlpha = 0.9f;
+  ThemePreset preset = ThemePreset::TrueDark;
+  float globalAlpha = 1.0f;
+  float windowBgAlpha = 0.98f;
+  float frameBgAlpha = 0.95f;
+  float popupBgAlpha = 0.98f;
   float rounding = 4.0f;
+  bool boostContrast = false;
 };
 
 void ApplyTheme(const ThemeSettings& s);

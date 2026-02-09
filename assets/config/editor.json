@@ -3,17 +3,18 @@
   "recent": [
     "assets/maps/map.json"
   ],
-  "windowWidth": 0,
-  "windowHeight": 0,
-  "atlasPath": "",
-  "atlasTileW": 0,
-  "atlasTileH": 0,
-  "atlasCols": 0,
-  "atlasRows": 0,
-  "themePreset": "UnityDark",
-  "themeGlobalAlpha": 0.95,
-  "themeWindowBgAlpha": 0.75,
-  "themeFrameBgAlpha": 0.85,
-  "themePopupBgAlpha": 0.9,
-  "themeRounding": 4
+  "windowWidth": 1280,
+  "windowHeight": 720,
+  "atlasPath": "assets/textures/atlas.png",
+  "atlasTileW": 32,
+  "atlasTileH": 32,
+  "atlasCols": 1,
+  "atlasRows": 1,
+  "themePreset": "TrueDark",
+  "themeGlobalAlpha": 1,
+  "themeWindowBgAlpha": 0.98,
+  "themeFrameBgAlpha": 0.95,
+  "themePopupBgAlpha": 0.98,
+  "themeRounding": 4,
+  "themeBoostContrast": 0
 }

@@ -200,17 +200,20 @@ const char* ThemePresetLabel(ThemePreset preset) {
   switch (preset) {
     case ThemePreset::Dark:
       return "Dark";
+    case ThemePreset::TrueDark:
+      return "TrueDark";
     case ThemePreset::UnityDark:
       return "UnityDark";
     case ThemePreset::Light:
       return "Light";
     default:
-      return "UnityDark";
+      return "TrueDark";
   }
 }
 
 ThemePreset ParseThemePreset(const std::string& value, ThemePreset fallback) {
   if (value == "Dark") return ThemePreset::Dark;
+  if (value == "TrueDark") return ThemePreset::TrueDark;
   if (value == "UnityDark") return ThemePreset::UnityDark;
   if (value == "Light") return ThemePreset::Light;
   return fallback;
@@ -219,11 +222,20 @@ ThemePreset ParseThemePreset(const std::string& value, ThemePreset fallback) {
 ThemeSettings DefaultThemeSettings(ThemePreset preset) {
   ThemeSettings settings{};
   settings.preset = preset;
-  settings.globalAlpha = 0.95f;
-  settings.windowBgAlpha = 0.75f;
-  settings.frameBgAlpha = 0.85f;
-  settings.popupBgAlpha = 0.9f;
-  settings.rounding = 4.0f;
+  if (preset == ThemePreset::TrueDark) {
+    settings.globalAlpha = 1.0f;
+    settings.windowBgAlpha = 0.98f;
+    settings.frameBgAlpha = 0.95f;
+    settings.popupBgAlpha = 0.98f;
+    settings.rounding = 4.0f;
+  } else {
+    settings.globalAlpha = 0.95f;
+    settings.windowBgAlpha = 0.75f;
+    settings.frameBgAlpha = 0.85f;
+    settings.popupBgAlpha = 0.9f;
+    settings.rounding = 4.0f;
+  }
+  settings.boostContrast = false;
   return settings;
 }
 
@@ -235,7 +247,7 @@ void ApplyDefaults(EditorUIState& state) {
   state.lastAtlas.cols = 0;
   state.lastAtlas.rows = 0;
   state.showSettings = true;
-  state.theme = DefaultThemeSettings(ThemePreset::UnityDark);
+  state.theme = DefaultThemeSettings(ThemePreset::TrueDark);
   state.themeDirty = true;
 }
 
@@ -274,7 +286,8 @@ void SaveEditorConfigInternal(const EditorUIState& state) {
   file << "  \"themeWindowBgAlpha\": " << state.theme.windowBgAlpha << ",\n";
   file << "  \"themeFrameBgAlpha\": " << state.theme.frameBgAlpha << ",\n";
   file << "  \"themePopupBgAlpha\": " << state.theme.popupBgAlpha << ",\n";
-  file << "  \"themeRounding\": " << state.theme.rounding << "\n";
+  file << "  \"themeRounding\": " << state.theme.rounding << ",\n";
+  file << "  \"themeBoostContrast\": " << (state.theme.boostContrast ? 1 : 0) << "\n";
   file << "}\n";
 }
 
@@ -602,24 +615,48 @@ void DrawSettings(EditorUIState& state) {
 
   ThemeSettings& theme = state.theme;
   int presetIndex = 0;
-  if (theme.preset == ThemePreset::UnityDark) {
+  if (theme.preset == ThemePreset::TrueDark) {
     presetIndex = 1;
-  } else if (theme.preset == ThemePreset::Light) {
+  } else if (theme.preset == ThemePreset::UnityDark) {
     presetIndex = 2;
+  } else if (theme.preset == ThemePreset::Light) {
+    presetIndex = 3;
   }
 
   bool changed = false;
-  if (ImGui::Combo("Theme Preset", &presetIndex, "Dark\0UnityDark\0Light\0")) {
-    theme.preset = (presetIndex == 0) ? ThemePreset::Dark :
-                   (presetIndex == 1) ? ThemePreset::UnityDark :
-                                        ThemePreset::Light;
-    changed = true;
+  if (ImGui::Combo("Theme Preset", &presetIndex, "Dark\0TrueDark\0UnityDark\0Light\0")) {
+    ThemePreset newPreset = (presetIndex == 0) ? ThemePreset::Dark :
+                            (presetIndex == 1) ? ThemePreset::TrueDark :
+                            (presetIndex == 2) ? ThemePreset::UnityDark :
+                                                 ThemePreset::Light;
+    if (newPreset != theme.preset) {
+      bool boost = theme.boostContrast;
+      theme = DefaultThemeSettings(newPreset);
+      theme.boostContrast = boost;
+      changed = true;
+    }
   }
 
-  changed |= ImGui::SliderFloat("Global Alpha", &theme.globalAlpha, 0.6f, 1.0f, "%.2f");
-  changed |= ImGui::SliderFloat("Window Bg Alpha", &theme.windowBgAlpha, 0.2f, 0.9f, "%.2f");
-  changed |= ImGui::SliderFloat("Frame Bg Alpha", &theme.frameBgAlpha, 0.2f, 0.9f, "%.2f");
+  changed |= ImGui::SliderFloat("UI Opacity (Global)", &theme.globalAlpha, 0.6f, 1.0f, "%.2f");
+  changed |= ImGui::SliderFloat("Panel Opacity (WindowBg)", &theme.windowBgAlpha, 0.85f, 1.0f, "%.2f");
+  changed |= ImGui::SliderFloat("Widget Opacity (FrameBg)", &theme.frameBgAlpha, 0.80f, 1.0f, "%.2f");
   changed |= ImGui::SliderFloat("Rounding", &theme.rounding, 0.0f, 8.0f, "%.1f");
+  changed |= ImGui::Checkbox("Boost Contrast", &theme.boostContrast);
+
+  if (ImGui::Button("Make Opaque (Dark)")) {
+    theme.globalAlpha = 1.0f;
+    theme.windowBgAlpha = 0.98f;
+    theme.frameBgAlpha = 0.95f;
+    theme.popupBgAlpha = 0.98f;
+    changed = true;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Transparent UI (for viewing scene)")) {
+    theme.windowBgAlpha = 0.85f;
+    theme.frameBgAlpha = 0.85f;
+    theme.popupBgAlpha = 0.85f;
+    changed = true;
+  }
 
   if (ImGui::Button("Reset Theme")) {
     theme = DefaultThemeSettings(theme.preset);
@@ -903,14 +940,22 @@ void LoadEditorConfig(EditorUIState& state) {
   ParseIntAfterKey(text, "atlasRows", state.lastAtlas.rows);
 
   std::string themePreset;
-  if (ParseStringAfterKey(text, "themePreset", themePreset)) {
-    state.theme.preset = ParseThemePreset(themePreset, state.theme.preset);
+  const bool hasThemePreset = ParseStringAfterKey(text, "themePreset", themePreset);
+  if (hasThemePreset) {
+    ThemePreset parsed = ParseThemePreset(themePreset, ThemePreset::TrueDark);
+    state.theme = DefaultThemeSettings(parsed);
+    ParseFloatAfterKey(text, "themeGlobalAlpha", state.theme.globalAlpha);
+    ParseFloatAfterKey(text, "themeWindowBgAlpha", state.theme.windowBgAlpha);
+    ParseFloatAfterKey(text, "themeFrameBgAlpha", state.theme.frameBgAlpha);
+    ParseFloatAfterKey(text, "themePopupBgAlpha", state.theme.popupBgAlpha);
+    ParseFloatAfterKey(text, "themeRounding", state.theme.rounding);
+    int boostContrast = state.theme.boostContrast ? 1 : 0;
+    if (ParseIntAfterKey(text, "themeBoostContrast", boostContrast)) {
+      state.theme.boostContrast = boostContrast != 0;
+    }
+  } else {
+    state.theme = DefaultThemeSettings(ThemePreset::TrueDark);
   }
-  ParseFloatAfterKey(text, "themeGlobalAlpha", state.theme.globalAlpha);
-  ParseFloatAfterKey(text, "themeWindowBgAlpha", state.theme.windowBgAlpha);
-  ParseFloatAfterKey(text, "themeFrameBgAlpha", state.theme.frameBgAlpha);
-  ParseFloatAfterKey(text, "themePopupBgAlpha", state.theme.popupBgAlpha);
-  ParseFloatAfterKey(text, "themeRounding", state.theme.rounding);
 
   if (state.lastAtlas.path.empty()) {
     state.lastAtlas.path = "assets/textures/atlas.png";

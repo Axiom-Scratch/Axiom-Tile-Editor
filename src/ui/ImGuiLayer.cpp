@@ -22,8 +22,6 @@ bool ImGuiLayer::Init(GLFWwindow* window) {
   static const std::string iniPath = "assets/config/imgui.ini";
   io.IniFilename = iniPath.c_str();
 
-  ImGui::StyleColorsDark();
-
   if (!ImGui_ImplGlfw_InitForOpenGL(window, true)) {
     return false;
   }
