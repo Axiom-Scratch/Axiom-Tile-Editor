@@ -2,6 +2,7 @@
 
 #include "app/Config.h"
 #include "editor/Tools.h"
+#include "platform/Actions.h"
 #include "platform/GlfwWindow.h"
 #include "platform/Input.h"
 #include "render/OrthoCamera.h"
@@ -23,6 +24,7 @@ private:
   void Shutdown();
 
   GlfwWindow m_window;
+  Actions m_actions;
   Input m_input;
   Renderer2D m_renderer;
   OrthoCamera m_camera;

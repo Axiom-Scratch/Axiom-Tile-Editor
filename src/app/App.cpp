@@ -27,16 +27,16 @@ Vec4 TileColor(int id) {
   return palette[(id - 1) % 9];
 }
 
-int GetTileSelectKey(const Input& input) {
-  if (input.WasKeyPressed(GLFW_KEY_1)) return 1;
-  if (input.WasKeyPressed(GLFW_KEY_2)) return 2;
-  if (input.WasKeyPressed(GLFW_KEY_3)) return 3;
-  if (input.WasKeyPressed(GLFW_KEY_4)) return 4;
-  if (input.WasKeyPressed(GLFW_KEY_5)) return 5;
-  if (input.WasKeyPressed(GLFW_KEY_6)) return 6;
-  if (input.WasKeyPressed(GLFW_KEY_7)) return 7;
-  if (input.WasKeyPressed(GLFW_KEY_8)) return 8;
-  if (input.WasKeyPressed(GLFW_KEY_9)) return 9;
+int GetTileSelectAction(const Actions& actions) {
+  if (actions.Get(Action::Tile1).pressed) return 1;
+  if (actions.Get(Action::Tile2).pressed) return 2;
+  if (actions.Get(Action::Tile3).pressed) return 3;
+  if (actions.Get(Action::Tile4).pressed) return 4;
+  if (actions.Get(Action::Tile5).pressed) return 5;
+  if (actions.Get(Action::Tile6).pressed) return 6;
+  if (actions.Get(Action::Tile7).pressed) return 7;
+  if (actions.Get(Action::Tile8).pressed) return 8;
+  if (actions.Get(Action::Tile9).pressed) return 9;
   return 0;
 }
 
@@ -66,6 +66,7 @@ bool App::Init() {
     return false;
   }
 
+  m_input.SetActions(&m_actions);
   m_input.Attach(m_window.GetNative());
   if (!m_imgui.Init(m_window.GetNative())) {
     Log::Error("Failed to initialize ImGui.");
@@ -94,6 +95,7 @@ void App::Run() {
     const float dt = static_cast<float>(now - lastTime);
     lastTime = now;
 
+    m_actions.BeginFrame();
     m_input.BeginFrame();
     m_window.PollEvents();
     m_input.Update(m_window.GetNative());
@@ -103,23 +105,23 @@ void App::Run() {
     glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
 
     ImGuiIO& io = ImGui::GetIO();
-    const bool allowMouse = !io.WantCaptureMouse;
-    const bool allowKeyboard = !io.WantCaptureKeyboard;
+    const bool imguiActive = ImGui::GetCurrentContext() != nullptr;
+    const bool blockMouse = imguiActive && io.WantCaptureMouse;
+    const bool blockKeys = imguiActive && io.WantCaptureKeyboard;
+    const bool allowMouse = !blockMouse;
+    const bool allowKeyboard = !blockKeys;
 
-    const bool ctrlDown =
-        allowKeyboard && (m_input.IsKeyDown(GLFW_KEY_LEFT_CONTROL) || m_input.IsKeyDown(GLFW_KEY_RIGHT_CONTROL));
-
-    if (ctrlDown && m_input.WasKeyPressed(GLFW_KEY_Z)) {
+    if (allowKeyboard && m_actions.Get(Action::Undo).pressed) {
       EndStroke(m_editor);
       Undo(m_editor);
     }
 
-    if (ctrlDown && m_input.WasKeyPressed(GLFW_KEY_Y)) {
+    if (allowKeyboard && m_actions.Get(Action::Redo).pressed) {
       EndStroke(m_editor);
       Redo(m_editor);
     }
 
-    if (ctrlDown && m_input.WasKeyPressed(GLFW_KEY_S)) {
+    if (allowKeyboard && m_actions.Get(Action::Save).pressed) {
       EndStroke(m_editor);
       if (SaveTileMap(m_editor, "assets/maps/map.json")) {
         Log::Info("Saved tilemap to assets/maps/map.json");
@@ -128,7 +130,7 @@ void App::Run() {
       }
     }
 
-    if (ctrlDown && m_input.WasKeyPressed(GLFW_KEY_O)) {
+    if (allowKeyboard && m_actions.Get(Action::Load).pressed) {
       EndStroke(m_editor);
       std::string error;
       if (LoadTileMap(m_editor, "assets/maps/map.json", &error)) {
@@ -141,23 +143,23 @@ void App::Run() {
     const float moveSpeed = 600.0f / m_camera.GetZoom();
     Vec2 camPos = m_camera.GetPosition();
     if (allowKeyboard) {
-      if (m_input.IsKeyDown(GLFW_KEY_W)) camPos.y += moveSpeed * dt;
-      if (m_input.IsKeyDown(GLFW_KEY_S)) camPos.y -= moveSpeed * dt;
-      if (m_input.IsKeyDown(GLFW_KEY_A)) camPos.x -= moveSpeed * dt;
-      if (m_input.IsKeyDown(GLFW_KEY_D)) camPos.x += moveSpeed * dt;
+      if (m_actions.Get(Action::MoveUp).down) camPos.y += moveSpeed * dt;
+      if (m_actions.Get(Action::MoveDown).down) camPos.y -= moveSpeed * dt;
+      if (m_actions.Get(Action::MoveLeft).down) camPos.x -= moveSpeed * dt;
+      if (m_actions.Get(Action::MoveRight).down) camPos.x += moveSpeed * dt;
     }
 
     if (allowMouse) {
-      const Vec2 scroll = m_input.GetScrollDelta();
-      if (scroll.y != 0.0f) {
+      const float scroll = m_actions.Get(Action::ZoomIn).value - m_actions.Get(Action::ZoomOut).value;
+      if (scroll != 0.0f) {
         float zoom = m_camera.GetZoom();
-        zoom *= 1.0f + scroll.y * 0.1f;
+        zoom *= 1.0f + scroll * 0.1f;
         zoom = std::clamp(zoom, 0.2f, 4.0f);
         m_camera.SetZoom(zoom);
       }
     }
 
-    if (allowMouse && m_input.IsMouseDown(GLFW_MOUSE_BUTTON_MIDDLE)) {
+    if (allowMouse && m_actions.Get(Action::PanDrag).down) {
       Vec2 delta = m_input.GetMouseDelta();
       camPos.x -= delta.x / m_camera.GetZoom();
       camPos.y += delta.y / m_camera.GetZoom();
@@ -169,13 +171,15 @@ void App::Run() {
 
     EditorInput editorInput{};
     editorInput.mouseWorld = mouseWorld;
-    editorInput.leftDown = allowMouse && m_input.IsMouseDown(GLFW_MOUSE_BUTTON_LEFT);
-    editorInput.rightDown = allowMouse && m_input.IsMouseDown(GLFW_MOUSE_BUTTON_RIGHT);
-    editorInput.leftPressed = allowMouse && m_input.WasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
-    editorInput.rightPressed = allowMouse && m_input.WasMousePressed(GLFW_MOUSE_BUTTON_RIGHT);
-    editorInput.leftReleased = allowMouse && m_input.WasMouseReleased(GLFW_MOUSE_BUTTON_LEFT);
-    editorInput.rightReleased = allowMouse && m_input.WasMouseReleased(GLFW_MOUSE_BUTTON_RIGHT);
-    editorInput.tileSelect = allowKeyboard ? GetTileSelectKey(m_input) : 0;
+    const ActionState& paint = m_actions.Get(Action::Paint);
+    const ActionState& erase = m_actions.Get(Action::Erase);
+    editorInput.leftDown = allowMouse && paint.down;
+    editorInput.rightDown = allowMouse && erase.down;
+    editorInput.leftPressed = allowMouse && paint.pressed;
+    editorInput.rightPressed = allowMouse && erase.pressed;
+    editorInput.leftReleased = allowMouse && paint.released;
+    editorInput.rightReleased = allowMouse && erase.released;
+    editorInput.tileSelect = allowKeyboard ? GetTileSelectAction(m_actions) : 0;
     UpdateEditor(m_editor, editorInput);
 
     glClearColor(0.08f, 0.08f, 0.09f, 1.0f);

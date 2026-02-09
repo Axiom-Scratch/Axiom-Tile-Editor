@@ -11,10 +11,13 @@
 
 namespace te {
 
+class Actions;
+
 class Input {
 public:
   Input() = default;
 
+  void SetActions(Actions* actions);
   void Attach(GLFWwindow* window);
   void BeginFrame();
   void Update(GLFWwindow* window);
@@ -31,6 +34,8 @@ public:
   Vec2 GetScrollDelta() const { return m_scrollDelta; }
 
 private:
+  static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+  static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
   static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
   std::array<unsigned char, GLFW_KEY_LAST + 1> m_keys{};
@@ -43,6 +48,7 @@ private:
   Vec2 m_scrollDelta{};
 
   GLFWwindow* m_window = nullptr;
+  Actions* m_actions = nullptr;
 
   static Input* s_instance;
 };
