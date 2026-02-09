@@ -7,6 +7,7 @@
 #include "render/OrthoCamera.h"
 #include "render/Renderer2D.h"
 #include "ui/ImGuiLayer.h"
+#include "util/Log.h"
 
 namespace te {
 
@@ -27,6 +28,7 @@ private:
   OrthoCamera m_camera;
   EditorState m_editor;
   ImGuiLayer m_imgui;
+  Log m_log;
   Vec2i m_framebuffer{};
 };
 

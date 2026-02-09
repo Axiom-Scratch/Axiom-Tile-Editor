@@ -1,8 +1,10 @@
 #include "app/App.h"
 
 #include "render/GL.h"
+#include "ui/Panels.h"
 #include "util/Log.h"
 
+#include <imgui.h>
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
@@ -65,6 +67,10 @@ bool App::Init() {
   }
 
   m_input.Attach(m_window.GetNative());
+  if (!m_imgui.Init(m_window.GetNative())) {
+    Log::Error("Failed to initialize ImGui.");
+    return false;
+  }
 
   const float mapWorldWidth = static_cast<float>(AppConfig::MapWidth * AppConfig::TileSize);
   const float mapWorldHeight = static_cast<float>(AppConfig::MapHeight * AppConfig::TileSize);
@@ -91,11 +97,17 @@ void App::Run() {
     m_input.BeginFrame();
     m_window.PollEvents();
     m_input.Update(m_window.GetNative());
+    m_imgui.NewFrame();
 
     m_framebuffer = m_window.GetFramebufferSize();
     glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
 
-    const bool ctrlDown = m_input.IsKeyDown(GLFW_KEY_LEFT_CONTROL) || m_input.IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
+    ImGuiIO& io = ImGui::GetIO();
+    const bool allowMouse = !io.WantCaptureMouse;
+    const bool allowKeyboard = !io.WantCaptureKeyboard;
+
+    const bool ctrlDown =
+        allowKeyboard && (m_input.IsKeyDown(GLFW_KEY_LEFT_CONTROL) || m_input.IsKeyDown(GLFW_KEY_RIGHT_CONTROL));
 
     if (ctrlDown && m_input.WasKeyPressed(GLFW_KEY_Z)) {
       EndStroke(m_editor);
@@ -128,20 +140,24 @@ void App::Run() {
 
     const float moveSpeed = 600.0f / m_camera.GetZoom();
     Vec2 camPos = m_camera.GetPosition();
-    if (m_input.IsKeyDown(GLFW_KEY_W)) camPos.y += moveSpeed * dt;
-    if (m_input.IsKeyDown(GLFW_KEY_S)) camPos.y -= moveSpeed * dt;
-    if (m_input.IsKeyDown(GLFW_KEY_A)) camPos.x -= moveSpeed * dt;
-    if (m_input.IsKeyDown(GLFW_KEY_D)) camPos.x += moveSpeed * dt;
-
-    const Vec2 scroll = m_input.GetScrollDelta();
-    if (scroll.y != 0.0f) {
-      float zoom = m_camera.GetZoom();
-      zoom *= 1.0f + scroll.y * 0.1f;
-      zoom = std::clamp(zoom, 0.2f, 4.0f);
-      m_camera.SetZoom(zoom);
+    if (allowKeyboard) {
+      if (m_input.IsKeyDown(GLFW_KEY_W)) camPos.y += moveSpeed * dt;
+      if (m_input.IsKeyDown(GLFW_KEY_S)) camPos.y -= moveSpeed * dt;
+      if (m_input.IsKeyDown(GLFW_KEY_A)) camPos.x -= moveSpeed * dt;
+      if (m_input.IsKeyDown(GLFW_KEY_D)) camPos.x += moveSpeed * dt;
     }
 
-    if (m_input.IsMouseDown(GLFW_MOUSE_BUTTON_MIDDLE)) {
+    if (allowMouse) {
+      const Vec2 scroll = m_input.GetScrollDelta();
+      if (scroll.y != 0.0f) {
+        float zoom = m_camera.GetZoom();
+        zoom *= 1.0f + scroll.y * 0.1f;
+        zoom = std::clamp(zoom, 0.2f, 4.0f);
+        m_camera.SetZoom(zoom);
+      }
+    }
+
+    if (allowMouse && m_input.IsMouseDown(GLFW_MOUSE_BUTTON_MIDDLE)) {
       Vec2 delta = m_input.GetMouseDelta();
       camPos.x -= delta.x / m_camera.GetZoom();
       camPos.y += delta.y / m_camera.GetZoom();
@@ -153,20 +169,19 @@ void App::Run() {
 
     EditorInput editorInput{};
     editorInput.mouseWorld = mouseWorld;
-    editorInput.leftDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_LEFT);
-    editorInput.rightDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_RIGHT);
-    editorInput.leftPressed = m_input.WasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
-    editorInput.rightPressed = m_input.WasMousePressed(GLFW_MOUSE_BUTTON_RIGHT);
-    editorInput.leftReleased = m_input.WasMouseReleased(GLFW_MOUSE_BUTTON_LEFT);
-    editorInput.rightReleased = m_input.WasMouseReleased(GLFW_MOUSE_BUTTON_RIGHT);
-    editorInput.tileSelect = GetTileSelectKey(m_input);
+    editorInput.leftDown = allowMouse && m_input.IsMouseDown(GLFW_MOUSE_BUTTON_LEFT);
+    editorInput.rightDown = allowMouse && m_input.IsMouseDown(GLFW_MOUSE_BUTTON_RIGHT);
+    editorInput.leftPressed = allowMouse && m_input.WasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
+    editorInput.rightPressed = allowMouse && m_input.WasMousePressed(GLFW_MOUSE_BUTTON_RIGHT);
+    editorInput.leftReleased = allowMouse && m_input.WasMouseReleased(GLFW_MOUSE_BUTTON_LEFT);
+    editorInput.rightReleased = allowMouse && m_input.WasMouseReleased(GLFW_MOUSE_BUTTON_RIGHT);
+    editorInput.tileSelect = allowKeyboard ? GetTileSelectKey(m_input) : 0;
     UpdateEditor(m_editor, editorInput);
 
     glClearColor(0.08f, 0.08f, 0.09f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     m_renderer.BeginFrame(m_camera.GetViewProjection(m_framebuffer));
-    m_imgui.BeginFrame();
 
     for (int y = 0; y < m_editor.tileMap.GetHeight(); ++y) {
       for (int x = 0; x < m_editor.tileMap.GetWidth(); ++x) {
@@ -212,8 +227,14 @@ void App::Run() {
       m_renderer.DrawLine({x0, y1}, {x0, y0}, hoverColor);
     }
 
-    m_imgui.EndFrame();
     m_renderer.EndFrame();
+
+    ui::HoverInfo hoverInfo{m_editor.selection.hasHover, m_editor.selection.hoverCell};
+    ui::DrawDockSpace();
+    ui::DrawTilePalette(m_editor);
+    ui::DrawInspector(m_editor, m_camera, hoverInfo);
+    ui::DrawLog(m_log);
+    m_imgui.Render();
 
     m_window.SwapBuffers();
   }
@@ -222,6 +243,7 @@ void App::Run() {
 }
 
 void App::Shutdown() {
+  m_imgui.Shutdown();
   m_renderer.Shutdown();
   m_window.Destroy();
 }

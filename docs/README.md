@@ -7,8 +7,11 @@
 
 GLFW is pulled via CMake FetchContent, so a system GLFW package is optional.
 
-System GLFW mode (avoids FetchContent downloads):  
-`pacman -S --needed cmake ninja pkgconf glfw-x11 libx11 libxrandr libxinerama libxcursor libxi wayland`
+Minimum Arch deps for system GLFW mode:
+`sudo pacman -S --needed cmake ninja pkgconf glfw-x11`
+
+If needed, add X11/Wayland libs:
+`sudo pacman -S --needed libx11 libxrandr libxinerama libxcursor libxi wayland`
 
 ## Build
 From the repo root:
@@ -21,9 +24,31 @@ System GLFW mode:
 USE_SYSTEM_GLFW=1 ./scripts/build.sh
 ```
 
+If configure hangs, use system glfw mode:
+```bash
+USE_SYSTEM_GLFW=1 ./scripts/build.sh clean debug
+```
+
+## Fast Build
+Default (offline submodule deps):
+```bash
+git submodule update --init --recursive
+./scripts/build.sh clean debug
+```
+
+System deps:
+```bash
+USE_SYSTEM_GLFW=1 ./scripts/build.sh clean debug
+```
+
+FetchContent cache:
+```bash
+FETCHCONTENT_BASE_DIR="$PWD/.cache/fetchcontent" ./scripts/build.sh clean debug
+```
+
 ## Run
 ```bash
-./tile-editor/scripts/run.sh
+./scripts/run.sh debug
 ```
 
 ## Controls
@@ -56,6 +81,7 @@ USE_SYSTEM_GLFW=1 ./scripts/build.sh
 - Renderer uses a simple batched 2D quad/line pipeline.
 - sRGB framebuffer is enabled when available.
 - `stb_image` is stubbed for now; replace `external/stb/stb_image.h` with the official header to enable texture loading.
+- ImGui is fetched via CMake; `IMGUI_DOCKING=ON` (default) pulls the docking branch. Set `IMGUI_DOCKING=OFF` to use a stable tag if the docking branch cannot be fetched.
 
 ## Future: Dear ImGui Docking Integration
 This project is structured to add an ImGui layer without touching core editor state:

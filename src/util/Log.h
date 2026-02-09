@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace te {
 
@@ -9,6 +10,7 @@ public:
   static void Info(const std::string& message);
   static void Warn(const std::string& message);
   static void Error(const std::string& message);
+  static const std::vector<std::string>& GetLines();
 };
 
 } // namespace te
