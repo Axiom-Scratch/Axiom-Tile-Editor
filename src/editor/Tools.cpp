@@ -46,7 +46,12 @@ void ApplyPaint(EditorState& state, int cellX, int cellY) {
 
 void InitEditor(EditorState& state, int width, int height, int tileSize) {
   state.tileMap.Resize(width, height, tileSize);
-  state.currentTileId = 1;
+  state.atlas.path = "assets/textures/atlas.png";
+  state.atlas.tileW = tileSize;
+  state.atlas.tileH = tileSize;
+  state.atlas.cols = 0;
+  state.atlas.rows = 0;
+  state.currentTileIndex = 1;
   state.strokeButton = StrokeButton::None;
   state.strokeTileId = 0;
   state.currentStroke.changes.clear();
@@ -55,7 +60,7 @@ void InitEditor(EditorState& state, int width, int height, int tileSize) {
 
 void UpdateEditor(EditorState& state, const EditorInput& input) {
   if (input.tileSelect >= 1 && input.tileSelect <= 9) {
-    state.currentTileId = input.tileSelect;
+    state.currentTileIndex = input.tileSelect;
   }
 
   const Vec2i cell = WorldToCell(state.tileMap, input.mouseWorld);
@@ -64,7 +69,7 @@ void UpdateEditor(EditorState& state, const EditorInput& input) {
 
   if (state.strokeButton == StrokeButton::None) {
     if (input.leftPressed) {
-      BeginStroke(state, StrokeButton::Left, state.currentTileId);
+      BeginStroke(state, StrokeButton::Left, state.currentTileIndex);
     } else if (input.rightPressed) {
       BeginStroke(state, StrokeButton::Right, 0);
     }
@@ -100,7 +105,7 @@ void EndStroke(EditorState& state) {
 
 bool SaveTileMap(const EditorState& state, const std::string& path) {
   return JsonLite::WriteTileMap(path, state.tileMap.GetWidth(), state.tileMap.GetHeight(),
-                                state.tileMap.GetTileSize(), state.tileMap.GetData());
+                                state.tileMap.GetTileSize(), state.atlas, state.tileMap.GetData());
 }
 
 bool LoadTileMap(EditorState& state, const std::string& path, std::string* errorOut) {
@@ -108,11 +113,13 @@ bool LoadTileMap(EditorState& state, const std::string& path, std::string* error
   int height = 0;
   int tileSize = 0;
   std::vector<int> data;
-  if (!JsonLite::ReadTileMap(path, width, height, tileSize, data, errorOut)) {
+  Atlas loadedAtlas;
+  if (!JsonLite::ReadTileMap(path, width, height, tileSize, loadedAtlas, state.atlas, data, errorOut)) {
     return false;
   }
 
   state.tileMap.SetData(width, height, tileSize, std::move(data));
+  state.atlas = loadedAtlas;
   state.history.Clear();
   return true;
 }

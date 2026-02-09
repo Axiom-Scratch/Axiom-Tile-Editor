@@ -4,6 +4,7 @@
 
 #include "render/Mesh.h"
 #include "render/Shader.h"
+#include "render/Texture.h"
 
 #include <vector>
 
@@ -16,6 +17,8 @@ public:
 
   void BeginFrame(const Mat4& viewProj);
   void DrawQuad(const Vec2& position, const Vec2& size, const Vec4& color);
+  void DrawQuad(const Vec2& position, const Vec2& size, const Vec4& color,
+                const Vec2& uv0, const Vec2& uv1, const Texture* texture);
   void DrawLine(const Vec2& a, const Vec2& b, const Vec4& color);
   void EndFrame();
 
@@ -27,6 +30,8 @@ private:
     float g = 0.0f;
     float b = 0.0f;
     float a = 1.0f;
+    float u = 0.0f;
+    float v = 0.0f;
   };
 
   void FlushQuads();
@@ -36,6 +41,7 @@ private:
   Mesh m_quadMesh;
   Mesh m_lineMesh;
   Mat4 m_viewProj{};
+  const Texture* m_activeTexture = nullptr;
 
   std::vector<Vertex> m_quadVertices;
   std::vector<Vertex> m_lineVertices;

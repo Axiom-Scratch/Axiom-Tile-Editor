@@ -31,6 +31,7 @@ constexpr KeyBinding kKeyBindings[] = {
   {Action::Load, GLFW_KEY_O, true},
   {Action::Undo, GLFW_KEY_Z, true},
   {Action::Redo, GLFW_KEY_Y, true},
+  {Action::Quit, GLFW_KEY_Q, true},
   {Action::Tile1, GLFW_KEY_1, false},
   {Action::Tile2, GLFW_KEY_2, false},
   {Action::Tile3, GLFW_KEY_3, false},
@@ -65,7 +66,7 @@ bool IsCtrlKey(int key) {
 }
 
 bool IsCtrlChordKey(int key) {
-  return key == GLFW_KEY_S || key == GLFW_KEY_O || key == GLFW_KEY_Z || key == GLFW_KEY_Y;
+  return key == GLFW_KEY_S || key == GLFW_KEY_O || key == GLFW_KEY_Z || key == GLFW_KEY_Y || key == GLFW_KEY_Q;
 }
 
 } // namespace

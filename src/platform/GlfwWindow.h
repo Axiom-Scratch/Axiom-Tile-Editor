@@ -22,6 +22,7 @@ public:
 
   bool ShouldClose() const;
   void SetShouldClose(bool shouldClose);
+  void SetVsync(bool enabled);
 
   GLFWwindow* GetNative() const;
   Vec2i GetFramebufferSize() const;
@@ -35,6 +36,7 @@ private:
   GLFWwindow* m_window = nullptr;
   int m_glMajor = 0;
   int m_glMinor = 0;
+  bool m_vsyncEnabled = true;
 };
 
 } // namespace te

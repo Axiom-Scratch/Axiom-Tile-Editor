@@ -15,6 +15,8 @@ public:
   void Bind(int slot = 0) const;
 
   bool IsValid() const { return m_id != 0; }
+  bool IsFallback() const { return m_isFallback; }
+  unsigned int GetId() const { return m_id; }
   int GetWidth() const { return m_width; }
   int GetHeight() const { return m_height; }
 
@@ -23,6 +25,7 @@ private:
   int m_width = 0;
   int m_height = 0;
   int m_channels = 0;
+  bool m_isFallback = false;
 };
 
 } // namespace te

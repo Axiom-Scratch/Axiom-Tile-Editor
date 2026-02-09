@@ -53,7 +53,7 @@ bool GlfwWindow::CreateWithVersion(int major, int minor, int width, int height, 
   }
 
   glfwMakeContextCurrent(m_window);
-  glfwSwapInterval(1);
+  SetVsync(true);
 
   m_glMajor = major;
   m_glMinor = minor;
@@ -86,6 +86,13 @@ void GlfwWindow::SetShouldClose(bool shouldClose) {
   if (m_window) {
     glfwSetWindowShouldClose(m_window, shouldClose ? GLFW_TRUE : GLFW_FALSE);
   }
+}
+
+void GlfwWindow::SetVsync(bool enabled) {
+  if (m_window) {
+    glfwSwapInterval(enabled ? 1 : 0);
+  }
+  m_vsyncEnabled = enabled;
 }
 
 GLFWwindow* GlfwWindow::GetNative() const {

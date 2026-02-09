@@ -2,6 +2,7 @@
 
 #include "app/Config.h"
 
+#include "editor/Atlas.h"
 #include "editor/Commands.h"
 #include "editor/Selection.h"
 #include "editor/TileMap.h"
@@ -31,8 +32,9 @@ struct EditorState {
   TileMap tileMap;
   Selection selection;
   CommandHistory history;
+  Atlas atlas;
 
-  int currentTileId = 1;
+  int currentTileIndex = 1;
   StrokeButton strokeButton = StrokeButton::None;
   int strokeTileId = 0;
   PaintCommand currentStroke;

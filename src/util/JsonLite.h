@@ -1,5 +1,6 @@
 #pragma once
 
+#include "editor/Atlas.h"
 #include "util/FileIO.h"
 
 #include <cctype>
@@ -10,12 +11,19 @@
 namespace te::JsonLite {
 
 inline bool WriteTileMap(const std::string& path, int width, int height, int tileSize,
-                         const std::vector<int>& data) {
+                         const Atlas& atlas, const std::vector<int>& data) {
   std::ostringstream ss;
   ss << "{\n";
   ss << "  \"width\": " << width << ",\n";
   ss << "  \"height\": " << height << ",\n";
   ss << "  \"tileSize\": " << tileSize << ",\n";
+  ss << "  \"atlas\": {\n";
+  ss << "    \"path\": \"" << atlas.path << "\",\n";
+  ss << "    \"tileW\": " << atlas.tileW << ",\n";
+  ss << "    \"tileH\": " << atlas.tileH << ",\n";
+  ss << "    \"cols\": " << atlas.cols << ",\n";
+  ss << "    \"rows\": " << atlas.rows << "\n";
+  ss << "  },\n";
   ss << "  \"data\": [";
   for (size_t i = 0; i < data.size(); ++i) {
     ss << data[i];
@@ -58,8 +66,41 @@ inline bool ParseIntAfterKey(const std::string& text, const std::string& key, in
   }
 }
 
-inline bool ReadTileMap(const std::string& path, int& width, int& height, int& tileSize,
-                        std::vector<int>& data, std::string* errorOut = nullptr) {
+inline bool ParseStringAfterKey(const std::string& text, const std::string& key, std::string& outValue) {
+  const std::string token = "\"" + key + "\"";
+  size_t pos = text.find(token);
+  if (pos == std::string::npos) {
+    return false;
+  }
+  pos = text.find(':', pos);
+  if (pos == std::string::npos) {
+    return false;
+  }
+  pos = text.find('"', pos);
+  if (pos == std::string::npos) {
+    return false;
+  }
+  ++pos;
+  std::string value;
+  bool escape = false;
+  for (; pos < text.size(); ++pos) {
+    char c = text[pos];
+    if (!escape && c == '"') {
+      break;
+    }
+    if (!escape && c == '\\') {
+      escape = true;
+      continue;
+    }
+    escape = false;
+    value.push_back(c);
+  }
+  outValue = value;
+  return true;
+}
+
+inline bool ReadTileMap(const std::string& path, int& width, int& height, int& tileSize, Atlas& atlas,
+                        const Atlas& defaultAtlas, std::vector<int>& data, std::string* errorOut = nullptr) {
   std::string text;
   if (!FileIO::ReadTextFile(path, text)) {
     if (errorOut) {
@@ -113,6 +154,38 @@ inline bool ReadTileMap(const std::string& path, int& width, int& height, int& t
       *errorOut = "Data size does not match width/height.";
     }
     return false;
+  }
+
+  atlas = defaultAtlas;
+  bool hasAtlas = false;
+  std::string atlasPath;
+  int atlasTileW = 0;
+  int atlasTileH = 0;
+  int atlasCols = 0;
+  int atlasRows = 0;
+  if (ParseStringAfterKey(text, "path", atlasPath)) {
+    atlas.path = atlasPath;
+    hasAtlas = true;
+  }
+  if (ParseIntAfterKey(text, "tileW", atlasTileW)) {
+    atlas.tileW = atlasTileW;
+    hasAtlas = true;
+  }
+  if (ParseIntAfterKey(text, "tileH", atlasTileH)) {
+    atlas.tileH = atlasTileH;
+    hasAtlas = true;
+  }
+  if (ParseIntAfterKey(text, "cols", atlasCols)) {
+    atlas.cols = atlasCols;
+    hasAtlas = true;
+  }
+  if (ParseIntAfterKey(text, "rows", atlasRows)) {
+    atlas.rows = atlasRows;
+    hasAtlas = true;
+  }
+  if (!hasAtlas) {
+    atlas.tileW = tileSize;
+    atlas.tileH = tileSize;
   }
 
   return true;

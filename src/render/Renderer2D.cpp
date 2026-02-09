@@ -10,13 +10,16 @@ bool Renderer2D::Init() {
 #version 330 core
 layout(location = 0) in vec2 aPos;
 layout(location = 1) in vec4 aColor;
+layout(location = 2) in vec2 aUv;
 
 uniform mat4 u_ViewProj;
 
 out vec4 vColor;
+out vec2 vUv;
 
 void main() {
   vColor = aColor;
+  vUv = aUv;
   gl_Position = u_ViewProj * vec4(aPos, 0.0, 1.0);
 }
 )";
@@ -24,16 +27,26 @@ void main() {
   const char* fragmentSrc = R"(
 #version 330 core
 in vec4 vColor;
+in vec2 vUv;
 out vec4 FragColor;
 
+uniform sampler2D u_Texture;
+uniform int u_UseTexture;
+
 void main() {
-  FragColor = vColor;
+  vec4 color = vColor;
+  if (u_UseTexture == 1) {
+    color *= texture(u_Texture, vUv);
+  }
+  FragColor = color;
 }
 )";
 
   if (!m_shader.LoadFromSource(vertexSrc, fragmentSrc)) {
     return false;
   }
+  m_shader.Bind();
+  m_shader.SetInt("u_Texture", 0);
 
   m_quadMesh.Create();
   m_lineMesh.Create();
@@ -65,6 +78,8 @@ void main() {
   glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(0));
   glEnableVertexAttribArray(1);
   glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(sizeof(float) * 2));
+  glEnableVertexAttribArray(2);
+  glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(sizeof(float) * 6));
   m_quadMesh.Unbind();
 
   m_lineMesh.Bind();
@@ -75,6 +90,8 @@ void main() {
   glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(0));
   glEnableVertexAttribArray(1);
   glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(sizeof(float) * 2));
+  glEnableVertexAttribArray(2);
+  glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(sizeof(float) * 6));
   m_lineMesh.Unbind();
 
   glEnable(GL_BLEND);
@@ -92,9 +109,21 @@ void Renderer2D::BeginFrame(const Mat4& viewProj) {
   m_viewProj = viewProj;
   m_quadVertices.clear();
   m_lineVertices.clear();
+  m_activeTexture = nullptr;
 }
 
 void Renderer2D::DrawQuad(const Vec2& position, const Vec2& size, const Vec4& color) {
+  DrawQuad(position, size, color, {0.0f, 0.0f}, {1.0f, 1.0f}, nullptr);
+}
+
+void Renderer2D::DrawQuad(const Vec2& position, const Vec2& size, const Vec4& color,
+                          const Vec2& uv0, const Vec2& uv1, const Texture* texture) {
+  if (texture != m_activeTexture && !m_quadVertices.empty()) {
+    FlushQuads();
+    m_quadVertices.clear();
+  }
+  m_activeTexture = texture;
+
   if (m_quadVertices.size() + 4 > MaxQuadVertices) {
     FlushQuads();
     m_quadVertices.clear();
@@ -105,10 +134,10 @@ void Renderer2D::DrawQuad(const Vec2& position, const Vec2& size, const Vec4& co
   const float w = size.x;
   const float h = size.y;
 
-  m_quadVertices.push_back({x, y, color.r, color.g, color.b, color.a});
-  m_quadVertices.push_back({x + w, y, color.r, color.g, color.b, color.a});
-  m_quadVertices.push_back({x + w, y + h, color.r, color.g, color.b, color.a});
-  m_quadVertices.push_back({x, y + h, color.r, color.g, color.b, color.a});
+  m_quadVertices.push_back({x, y, color.r, color.g, color.b, color.a, uv0.x, uv0.y});
+  m_quadVertices.push_back({x + w, y, color.r, color.g, color.b, color.a, uv1.x, uv0.y});
+  m_quadVertices.push_back({x + w, y + h, color.r, color.g, color.b, color.a, uv1.x, uv1.y});
+  m_quadVertices.push_back({x, y + h, color.r, color.g, color.b, color.a, uv0.x, uv1.y});
 }
 
 void Renderer2D::DrawLine(const Vec2& a, const Vec2& b, const Vec4& color) {
@@ -117,8 +146,8 @@ void Renderer2D::DrawLine(const Vec2& a, const Vec2& b, const Vec4& color) {
     m_lineVertices.clear();
   }
 
-  m_lineVertices.push_back({a.x, a.y, color.r, color.g, color.b, color.a});
-  m_lineVertices.push_back({b.x, b.y, color.r, color.g, color.b, color.a});
+  m_lineVertices.push_back({a.x, a.y, color.r, color.g, color.b, color.a, 0.0f, 0.0f});
+  m_lineVertices.push_back({b.x, b.y, color.r, color.g, color.b, color.a, 0.0f, 0.0f});
 }
 
 void Renderer2D::EndFrame() {
@@ -133,6 +162,10 @@ void Renderer2D::FlushQuads() {
 
   m_shader.Bind();
   m_shader.SetMat4("u_ViewProj", m_viewProj);
+  m_shader.SetInt("u_UseTexture", (m_activeTexture && m_activeTexture->IsValid()) ? 1 : 0);
+  if (m_activeTexture && m_activeTexture->IsValid()) {
+    m_activeTexture->Bind(0);
+  }
 
   m_quadMesh.Bind();
   glBindBuffer(GL_ARRAY_BUFFER, m_quadMesh.GetVbo());
@@ -152,6 +185,7 @@ void Renderer2D::FlushLines() {
 
   m_shader.Bind();
   m_shader.SetMat4("u_ViewProj", m_viewProj);
+  m_shader.SetInt("u_UseTexture", 0);
 
   m_lineMesh.Bind();
   glBindBuffer(GL_ARRAY_BUFFER, m_lineMesh.GetVbo());

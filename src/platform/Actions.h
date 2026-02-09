@@ -18,6 +18,7 @@ enum class Action {
   Load,
   Undo,
   Redo,
+  Quit,
   Tile1,
   Tile2,
   Tile3,

@@ -27,6 +27,40 @@ Vec4 TileColor(int id) {
   return palette[(id - 1) % 9];
 }
 
+void ResolveAtlasGrid(Atlas& atlas, const Texture& texture) {
+  if (atlas.tileW < 1) atlas.tileW = 1;
+  if (atlas.tileH < 1) atlas.tileH = 1;
+  if (texture.GetWidth() > 0 && atlas.cols <= 0) {
+    atlas.cols = texture.GetWidth() / atlas.tileW;
+  }
+  if (texture.GetHeight() > 0 && atlas.rows <= 0) {
+    atlas.rows = texture.GetHeight() / atlas.tileH;
+  }
+  if (atlas.cols < 1) atlas.cols = 1;
+  if (atlas.rows < 1) atlas.rows = 1;
+}
+
+bool ComputeAtlasUV(const Atlas& atlas, int tileIndex, Vec2& uv0, Vec2& uv1) {
+  if (tileIndex <= 0) {
+    return false;
+  }
+  const int cols = std::max(1, atlas.cols);
+  const int rows = std::max(1, atlas.rows);
+  const int idx = tileIndex - 1;
+  const int col = idx % cols;
+  const int row = idx / cols;
+  if (row >= rows) {
+    return false;
+  }
+  const float u0 = static_cast<float>(col) / static_cast<float>(cols);
+  const float v0 = static_cast<float>(row) / static_cast<float>(rows);
+  const float u1 = static_cast<float>(col + 1) / static_cast<float>(cols);
+  const float v1 = static_cast<float>(row + 1) / static_cast<float>(rows);
+  uv0 = {u0, v0};
+  uv1 = {u1, v1};
+  return true;
+}
+
 int GetTileSelectAction(const Actions& actions) {
   if (actions.Get(Action::Tile1).pressed) return 1;
   if (actions.Get(Action::Tile2).pressed) return 2;
@@ -47,6 +81,9 @@ bool App::Init() {
     return false;
   }
 
+  ui::InitEditorUI(m_uiState);
+  m_window.SetVsync(m_uiState.vsyncEnabled);
+
   if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
     Log::Error("Failed to initialize GLAD.");
     return false;
@@ -66,6 +103,10 @@ bool App::Init() {
     return false;
   }
 
+  InitEditor(m_editor, AppConfig::MapWidth, AppConfig::MapHeight, AppConfig::TileSize);
+  m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+  ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
+
   m_input.SetActions(&m_actions);
   m_input.Attach(m_window.GetNative());
   if (!m_imgui.Init(m_window.GetNative())) {
@@ -77,8 +118,6 @@ bool App::Init() {
   const float mapWorldHeight = static_cast<float>(AppConfig::MapHeight * AppConfig::TileSize);
   m_camera.SetPosition({mapWorldWidth * 0.5f, mapWorldHeight * 0.5f});
   m_camera.SetZoom(1.0f);
-
-  InitEditor(m_editor, AppConfig::MapWidth, AppConfig::MapHeight, AppConfig::TileSize);
 
   return true;
 }
@@ -111,33 +150,58 @@ void App::Run() {
     const bool allowMouse = !blockMouse;
     const bool allowKeyboard = !blockKeys;
 
-    if (allowKeyboard && m_actions.Get(Action::Undo).pressed) {
+    auto handleUndo = [&]() {
       EndStroke(m_editor);
       Undo(m_editor);
-    }
+    };
 
-    if (allowKeyboard && m_actions.Get(Action::Redo).pressed) {
+    auto handleRedo = [&]() {
       EndStroke(m_editor);
       Redo(m_editor);
-    }
+    };
 
-    if (allowKeyboard && m_actions.Get(Action::Save).pressed) {
+    auto handleSave = [&](const std::string& path) {
       EndStroke(m_editor);
-      if (SaveTileMap(m_editor, "assets/maps/map.json")) {
-        Log::Info("Saved tilemap to assets/maps/map.json");
+      if (SaveTileMap(m_editor, path)) {
+        Log::Info("Saved tilemap to " + path);
+        ui::AddRecentFile(m_uiState, path);
       } else {
         Log::Error("Failed to save tilemap.");
       }
-    }
+    };
 
-    if (allowKeyboard && m_actions.Get(Action::Load).pressed) {
+    auto handleLoad = [&](const std::string& path) {
       EndStroke(m_editor);
       std::string error;
-      if (LoadTileMap(m_editor, "assets/maps/map.json", &error)) {
-        Log::Info("Loaded tilemap from assets/maps/map.json");
+      if (LoadTileMap(m_editor, path, &error)) {
+        Log::Info("Loaded tilemap from " + path);
+        ui::AddRecentFile(m_uiState, path);
+        m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+        ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
       } else {
         Log::Error("Failed to load tilemap: " + error);
       }
+    };
+
+    const std::string& currentPath = ui::GetCurrentMapPath(m_uiState);
+    if (allowKeyboard && m_actions.Get(Action::Undo).pressed) {
+      handleUndo();
+    }
+
+    if (allowKeyboard && m_actions.Get(Action::Redo).pressed) {
+      handleRedo();
+    }
+
+    if (allowKeyboard && m_actions.Get(Action::Save).pressed) {
+      handleSave(currentPath);
+    }
+
+    if (allowKeyboard && m_actions.Get(Action::Load).pressed) {
+      handleLoad(currentPath);
+    }
+
+    if (allowKeyboard && m_actions.Get(Action::Quit).pressed) {
+      m_window.SetShouldClose(true);
     }
 
     const float moveSpeed = 600.0f / m_camera.GetZoom();
@@ -189,31 +253,44 @@ void App::Run() {
 
     for (int y = 0; y < m_editor.tileMap.GetHeight(); ++y) {
       for (int x = 0; x < m_editor.tileMap.GetWidth(); ++x) {
-        const int id = m_editor.tileMap.GetTile(x, y);
-        if (id == 0) {
+        const int tileIndex = m_editor.tileMap.GetTile(x, y);
+        if (tileIndex == 0) {
           continue;
         }
-        const Vec4 color = TileColor(id);
         const Vec2 pos{static_cast<float>(x * m_editor.tileMap.GetTileSize()),
                        static_cast<float>(y * m_editor.tileMap.GetTileSize())};
         const Vec2 size{static_cast<float>(m_editor.tileMap.GetTileSize()),
                         static_cast<float>(m_editor.tileMap.GetTileSize())};
-        m_renderer.DrawQuad(pos, size, color);
+        if (!m_atlasTexture.IsFallback()) {
+          Vec2 uv0{};
+          Vec2 uv1{};
+          if (ComputeAtlasUV(m_editor.atlas, tileIndex, uv0, uv1)) {
+            m_renderer.DrawQuad(pos, size, {1.0f, 1.0f, 1.0f, 1.0f}, uv0, uv1, &m_atlasTexture);
+          } else {
+            const Vec4 color = TileColor(tileIndex);
+            m_renderer.DrawQuad(pos, size, color);
+          }
+        } else {
+          const Vec4 color = TileColor(tileIndex);
+          m_renderer.DrawQuad(pos, size, color);
+        }
       }
     }
 
-    const float width = static_cast<float>(m_editor.tileMap.GetWidth() * m_editor.tileMap.GetTileSize());
-    const float height = static_cast<float>(m_editor.tileMap.GetHeight() * m_editor.tileMap.GetTileSize());
-    const Vec4 gridColor{0.15f, 0.15f, 0.18f, 0.7f};
+    if (m_uiState.showGrid) {
+      const float width = static_cast<float>(m_editor.tileMap.GetWidth() * m_editor.tileMap.GetTileSize());
+      const float height = static_cast<float>(m_editor.tileMap.GetHeight() * m_editor.tileMap.GetTileSize());
+      const Vec4 gridColor{0.15f, 0.15f, 0.18f, 0.7f};
 
-    for (int x = 0; x <= m_editor.tileMap.GetWidth(); ++x) {
-      const float xpos = static_cast<float>(x * m_editor.tileMap.GetTileSize());
-      m_renderer.DrawLine({xpos, 0.0f}, {xpos, height}, gridColor);
-    }
+      for (int x = 0; x <= m_editor.tileMap.GetWidth(); ++x) {
+        const float xpos = static_cast<float>(x * m_editor.tileMap.GetTileSize());
+        m_renderer.DrawLine({xpos, 0.0f}, {xpos, height}, gridColor);
+      }
 
-    for (int y = 0; y <= m_editor.tileMap.GetHeight(); ++y) {
-      const float ypos = static_cast<float>(y * m_editor.tileMap.GetTileSize());
-      m_renderer.DrawLine({0.0f, ypos}, {width, ypos}, gridColor);
+      for (int y = 0; y <= m_editor.tileMap.GetHeight(); ++y) {
+        const float ypos = static_cast<float>(y * m_editor.tileMap.GetTileSize());
+        m_renderer.DrawLine({0.0f, ypos}, {width, ypos}, gridColor);
+      }
     }
 
     if (m_editor.selection.hasHover) {
@@ -234,10 +311,34 @@ void App::Run() {
     m_renderer.EndFrame();
 
     ui::HoverInfo hoverInfo{m_editor.selection.hasHover, m_editor.selection.hoverCell};
-    ui::DrawDockSpace();
-    ui::DrawTilePalette(m_editor);
-    ui::DrawInspector(m_editor, m_camera, hoverInfo);
-    ui::DrawLog(m_log);
+    ui::EditorUIOutput uiOutput = ui::DrawEditorUI(m_uiState, m_editor, m_camera, hoverInfo, m_log, m_atlasTexture);
+    if (m_uiState.vsyncDirty) {
+      m_window.SetVsync(m_uiState.vsyncEnabled);
+      m_uiState.vsyncDirty = false;
+    }
+    if (uiOutput.requestUndo) {
+      handleUndo();
+    }
+    if (uiOutput.requestRedo) {
+      handleRedo();
+    }
+    if (uiOutput.requestSave) {
+      handleSave(ui::GetCurrentMapPath(m_uiState));
+    }
+    if (uiOutput.requestLoad) {
+      const std::string& loadPath = uiOutput.loadPath.empty() ? ui::GetCurrentMapPath(m_uiState) : uiOutput.loadPath;
+      handleLoad(loadPath);
+    }
+    if (uiOutput.requestSaveAs && !uiOutput.saveAsPath.empty()) {
+      handleSave(uiOutput.saveAsPath);
+    }
+    if (uiOutput.requestReloadAtlas) {
+      m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+      ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
+    }
+    if (uiOutput.requestQuit) {
+      m_window.SetShouldClose(true);
+    }
     m_imgui.Render();
 
     m_window.SwapBuffers();
@@ -247,6 +348,7 @@ void App::Run() {
 }
 
 void App::Shutdown() {
+  ui::ShutdownEditorUI(m_uiState);
   m_imgui.Shutdown();
   m_renderer.Shutdown();
   m_window.Destroy();
