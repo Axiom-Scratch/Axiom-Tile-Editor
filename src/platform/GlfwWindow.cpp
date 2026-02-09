@@ -95,6 +95,12 @@ void GlfwWindow::SetVsync(bool enabled) {
   m_vsyncEnabled = enabled;
 }
 
+void GlfwWindow::SetTitle(const char* title) {
+  if (m_window && title) {
+    glfwSetWindowTitle(m_window, title);
+  }
+}
+
 GLFWwindow* GlfwWindow::GetNative() const {
   return m_window;
 }

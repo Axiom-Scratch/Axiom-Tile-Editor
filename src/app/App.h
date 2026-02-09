@@ -38,6 +38,8 @@ private:
   ui::EditorUIState m_uiState;
   Log m_log;
   Vec2i m_framebuffer{};
+  std::string m_windowTitle;
+  bool m_lastDirty = false;
 };
 
 } // namespace te

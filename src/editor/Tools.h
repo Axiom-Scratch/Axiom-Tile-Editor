@@ -21,6 +21,8 @@ enum class StrokeButton {
 enum class Tool {
   Paint,
   Erase,
+  Rect,
+  Fill,
   Pan
 };
 
@@ -39,6 +41,8 @@ struct EditorInput {
   bool rightPressed = false;
   bool leftReleased = false;
   bool rightReleased = false;
+  bool shift = false;
+  bool ctrl = false;
   int tileSelect = 0;
 };
 
@@ -56,6 +60,11 @@ struct EditorState {
   StrokeButton strokeButton = StrokeButton::None;
   int strokeTileId = 0;
   PaintCommand currentStroke;
+
+  bool rectActive = false;
+  Vec2i rectStart{};
+  Vec2i rectEnd{};
+  bool rectErase = false;
 };
 
 void InitEditor(EditorState& state, int width, int height, int tileSize);

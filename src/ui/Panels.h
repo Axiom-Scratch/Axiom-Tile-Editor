@@ -60,6 +60,7 @@ struct EditorUIState {
   bool openUnsavedModal = false;
 
   std::string pendingLoadPath;
+  bool pendingQuit = false;
 
   SceneViewRect sceneRect{};
   bool sceneHovered = false;
@@ -69,6 +70,11 @@ struct EditorUIState {
 
   ThemeSettings theme{};
   bool themeDirty = true;
+
+  float saveMessageTimer = 0.0f;
+  bool autosaveEnabled = false;
+  float autosaveInterval = 60.0f;
+  float autosaveTimer = 0.0f;
 };
 
 struct EditorUIOutput {
@@ -81,6 +87,8 @@ struct EditorUIOutput {
   bool requestReloadAtlas = false;
   bool requestFocus = false;
   bool requestResizeMap = false;
+  bool confirmSave = false;
+  bool confirmDiscard = false;
 
   std::string loadPath;
   std::string saveAsPath;
@@ -98,7 +106,8 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
                             EditorState& editor,
                             Log& log,
                             const Texture& atlasTexture,
-                            Framebuffer& sceneFramebuffer);
+                            Framebuffer& sceneFramebuffer,
+                            float cameraZoom);
 
 void DrawSceneOverlay(const EditorUIState& state,
                       float fps,

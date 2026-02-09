@@ -239,6 +239,23 @@ ThemeSettings DefaultThemeSettings(ThemePreset preset) {
   return settings;
 }
 
+const char* ToolLabel(Tool tool) {
+  switch (tool) {
+    case Tool::Paint:
+      return "Paint";
+    case Tool::Erase:
+      return "Erase";
+    case Tool::Rect:
+      return "Rect";
+    case Tool::Fill:
+      return "Fill";
+    case Tool::Pan:
+      return "Pan";
+    default:
+      return "Unknown";
+  }
+}
+
 void ApplyDefaults(EditorUIState& state) {
   state.currentMapPath = "assets/maps/map.json";
   state.lastAtlas.path = "assets/textures/atlas.png";
@@ -249,6 +266,8 @@ void ApplyDefaults(EditorUIState& state) {
   state.showSettings = true;
   state.theme = DefaultThemeSettings(ThemePreset::TrueDark);
   state.themeDirty = true;
+  state.autosaveEnabled = false;
+  state.autosaveInterval = 60.0f;
 }
 
 void EnsureBuffer(char* buffer, size_t size, const std::string& value) {
@@ -287,7 +306,9 @@ void SaveEditorConfigInternal(const EditorUIState& state) {
   file << "  \"themeFrameBgAlpha\": " << state.theme.frameBgAlpha << ",\n";
   file << "  \"themePopupBgAlpha\": " << state.theme.popupBgAlpha << ",\n";
   file << "  \"themeRounding\": " << state.theme.rounding << ",\n";
-  file << "  \"themeBoostContrast\": " << (state.theme.boostContrast ? 1 : 0) << "\n";
+  file << "  \"themeBoostContrast\": " << (state.theme.boostContrast ? 1 : 0) << ",\n";
+  file << "  \"autosaveEnabled\": " << (state.autosaveEnabled ? 1 : 0) << ",\n";
+  file << "  \"autosaveInterval\": " << state.autosaveInterval << "\n";
   file << "}\n";
 }
 
@@ -441,6 +462,14 @@ void DrawToolbar(EditorUIState& state, EditorUIOutput& out, EditorState& editor,
     editor.currentTool = Tool::Erase;
   }
   ImGui::SameLine();
+  if (ImGui::RadioButton("Rect", editor.currentTool == Tool::Rect)) {
+    editor.currentTool = Tool::Rect;
+  }
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Fill", editor.currentTool == Tool::Fill)) {
+    editor.currentTool = Tool::Fill;
+  }
+  ImGui::SameLine();
   if (ImGui::RadioButton("Pan", editor.currentTool == Tool::Pan)) {
     editor.currentTool = Tool::Pan;
   }
@@ -478,6 +507,24 @@ void DrawToolbar(EditorUIState& state, EditorUIOutput& out, EditorState& editor,
       ImGui::Image(textureId, ImVec2(24.0f, 24.0f), uv0, uv1);
 #endif
     }
+  }
+
+  ImGui::SameLine();
+  if (ImGui::Button("?")) {
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::BeginTooltip();
+    ImGui::TextUnformatted("Hotkeys");
+    ImGui::Separator();
+    ImGui::TextUnformatted("Q: Paint");
+    ImGui::TextUnformatted("W: Rect");
+    ImGui::TextUnformatted("E: Fill");
+    ImGui::TextUnformatted("R: Erase");
+    ImGui::TextUnformatted("Space: Pan (hold)");
+    ImGui::TextUnformatted("Ctrl+S: Save");
+    ImGui::TextUnformatted("Ctrl+O: Open");
+    ImGui::TextUnformatted("Ctrl+Shift+S: Save As");
+    ImGui::EndTooltip();
   }
 
   ImGui::End();
@@ -668,6 +715,14 @@ void DrawSettings(EditorUIState& state) {
     state.themeDirty = true;
   }
 
+  ImGui::Separator();
+  ImGui::Text("Autosave");
+  ImGui::Checkbox("Enable Autosave", &state.autosaveEnabled);
+  ImGui::SliderFloat("Autosave Interval (s)", &state.autosaveInterval, 5.0f, 300.0f, "%.0f");
+  if (state.autosaveInterval < 5.0f) {
+    state.autosaveInterval = 5.0f;
+  }
+
   ImGui::End();
 }
 
@@ -789,6 +844,47 @@ void DrawTilePalette(EditorState& editor, const Texture& atlasTexture) {
   ImGui::End();
 }
 
+void DrawStatusBar(const EditorUIState& state, const EditorState& editor, float zoom) {
+  ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float height = ImGui::GetFrameHeightWithSpacing() + 6.0f;
+  ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + viewport->Size.y - height));
+  ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, height));
+
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+                           ImGuiWindowFlags_NoDocking;
+  if (!ImGui::Begin("Status Bar", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+
+  const char* toolLabel = ToolLabel(editor.currentTool);
+  const int tileId = editor.currentTileIndex;
+  char hoverBuffer[64];
+  if (editor.selection.hasHover) {
+    std::snprintf(hoverBuffer, sizeof(hoverBuffer), "(%d, %d)", editor.selection.hoverCell.x,
+                  editor.selection.hoverCell.y);
+  } else {
+    std::snprintf(hoverBuffer, sizeof(hoverBuffer), "(--, --)");
+  }
+
+  std::string path = state.currentMapPath;
+  if (editor.hasUnsavedChanges) {
+    path += " *";
+  }
+
+  ImGui::Text("Tool: %s | Tile: %d | Hover: %s | Zoom: %.2f | File: %s", toolLabel, tileId, hoverBuffer, zoom,
+              path.c_str());
+
+  if (state.saveMessageTimer > 0.0f) {
+    const float textWidth = ImGui::CalcTextSize("Saving...").x;
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - textWidth - 10.0f);
+    ImGui::TextUnformatted("Saving...");
+  }
+
+  ImGui::End();
+}
+
 void DrawResizeModal(EditorUIState& state, EditorUIOutput& out) {
   if (state.openResizeModal) {
     ImGui::OpenPopup("Resize Map");
@@ -854,16 +950,22 @@ void DrawUnsavedModal(EditorUIState& state, EditorUIOutput& out) {
   }
 
   if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::TextWrapped("You have unsaved changes. Load anyway?");
-    if (ImGui::Button("Load")) {
-      out.requestLoad = true;
-      out.loadPath = state.pendingLoadPath;
-      state.pendingLoadPath.clear();
+    if (state.pendingQuit) {
+      ImGui::TextWrapped("You have unsaved changes. Save before quitting?");
+    } else {
+      ImGui::TextWrapped("You have unsaved changes. Save before opening?");
+    }
+    if (ImGui::Button("Save")) {
+      out.confirmSave = true;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Don't Save")) {
+      out.confirmDiscard = true;
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) {
-      state.pendingLoadPath.clear();
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -956,6 +1058,11 @@ void LoadEditorConfig(EditorUIState& state) {
   } else {
     state.theme = DefaultThemeSettings(ThemePreset::TrueDark);
   }
+  int autosaveEnabled = state.autosaveEnabled ? 1 : 0;
+  if (ParseIntAfterKey(text, "autosaveEnabled", autosaveEnabled)) {
+    state.autosaveEnabled = autosaveEnabled != 0;
+  }
+  ParseFloatAfterKey(text, "autosaveInterval", state.autosaveInterval);
 
   if (state.lastAtlas.path.empty()) {
     state.lastAtlas.path = "assets/textures/atlas.png";
@@ -1001,7 +1108,8 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
                             EditorState& editor,
                             Log& log,
                             const Texture& atlasTexture,
-                            Framebuffer& sceneFramebuffer) {
+                            Framebuffer& sceneFramebuffer,
+                            float cameraZoom) {
   EditorUIOutput out{};
 
   if (state.themeDirty) {
@@ -1032,6 +1140,8 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
   if (state.showTilePalette) {
     DrawTilePalette(editor, atlasTexture);
   }
+
+  DrawStatusBar(state, editor, cameraZoom);
 
   DrawSaveAsModal(state, out);
   DrawAboutModal(state);

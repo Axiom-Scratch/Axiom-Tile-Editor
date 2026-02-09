@@ -2,8 +2,10 @@
 
 #include "util/JsonLite.h"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
+#include <vector>
 
 namespace te {
 
@@ -43,6 +45,97 @@ void ApplyPaint(EditorState& state, int cellX, int cellY) {
   state.hasUnsavedChanges = true;
 }
 
+SelectionMode GetSelectionMode(const EditorInput& input) {
+  if (input.ctrl) {
+    return SelectionMode::Toggle;
+  }
+  if (input.shift) {
+    return SelectionMode::Add;
+  }
+  return SelectionMode::Replace;
+}
+
+void ApplyRect(EditorState& state, const Vec2i& a, const Vec2i& b, int tileId) {
+  PaintCommand command;
+
+  int minX = std::min(a.x, b.x);
+  int maxX = std::max(a.x, b.x);
+  int minY = std::min(a.y, b.y);
+  int maxY = std::max(a.y, b.y);
+
+  minX = std::max(0, minX);
+  minY = std::max(0, minY);
+  maxX = std::min(state.tileMap.GetWidth() - 1, maxX);
+  maxY = std::min(state.tileMap.GetHeight() - 1, maxY);
+
+  for (int y = minY; y <= maxY; ++y) {
+    for (int x = minX; x <= maxX; ++x) {
+      const int index = state.tileMap.Index(x, y);
+      const int before = state.tileMap.GetTile(x, y);
+      if (before == tileId) {
+        continue;
+      }
+      state.tileMap.SetTile(x, y, tileId);
+      AddOrUpdateChange(command, index, before, tileId);
+    }
+  }
+
+  if (!command.changes.empty()) {
+    state.history.Push(std::move(command));
+    state.hasUnsavedChanges = true;
+  }
+}
+
+void FloodFill(EditorState& state, int startX, int startY, int tileId) {
+  if (!state.tileMap.IsInBounds(startX, startY)) {
+    return;
+  }
+
+  const int target = state.tileMap.GetTile(startX, startY);
+  if (target == tileId) {
+    return;
+  }
+
+  const int width = state.tileMap.GetWidth();
+  const int height = state.tileMap.GetHeight();
+  std::vector<unsigned char> visited(static_cast<size_t>(width * height), 0U);
+  std::vector<Vec2i> stack;
+  stack.push_back({startX, startY});
+
+  PaintCommand command;
+
+  while (!stack.empty()) {
+    Vec2i cell = stack.back();
+    stack.pop_back();
+
+    if (!state.tileMap.IsInBounds(cell.x, cell.y)) {
+      continue;
+    }
+    const int index = state.tileMap.Index(cell.x, cell.y);
+    if (visited[static_cast<size_t>(index)] != 0U) {
+      continue;
+    }
+    visited[static_cast<size_t>(index)] = 1U;
+
+    if (state.tileMap.GetTile(cell.x, cell.y) != target) {
+      continue;
+    }
+
+    state.tileMap.SetTile(cell.x, cell.y, tileId);
+    AddOrUpdateChange(command, index, target, tileId);
+
+    stack.push_back({cell.x + 1, cell.y});
+    stack.push_back({cell.x - 1, cell.y});
+    stack.push_back({cell.x, cell.y + 1});
+    stack.push_back({cell.x, cell.y - 1});
+  }
+
+  if (!command.changes.empty()) {
+    state.history.Push(std::move(command));
+    state.hasUnsavedChanges = true;
+  }
+}
+
 } // namespace
 
 void InitEditor(EditorState& state, int width, int height, int tileSize) {
@@ -57,10 +150,15 @@ void InitEditor(EditorState& state, int width, int height, int tileSize) {
   state.layers.clear();
   state.layers.push_back({"Layer 0", true, false, 1.0f});
   state.selectedLayer = -1;
+  state.selection.Resize(width, height);
   state.hasUnsavedChanges = false;
   state.strokeButton = StrokeButton::None;
   state.strokeTileId = 0;
   state.currentStroke.changes.clear();
+  state.rectActive = false;
+  state.rectStart = {};
+  state.rectEnd = {};
+  state.rectErase = false;
   state.history.Clear();
 }
 
@@ -73,28 +171,62 @@ void UpdateEditor(EditorState& state, const EditorInput& input) {
   state.selection.hasHover = state.tileMap.IsInBounds(cell.x, cell.y);
   state.selection.hoverCell = cell;
 
-  if (state.strokeButton == StrokeButton::None) {
-    if (input.leftPressed) {
-      BeginStroke(state, StrokeButton::Left, state.currentTileIndex);
-    } else if (input.rightPressed) {
-      BeginStroke(state, StrokeButton::Right, 0);
+  if (state.currentTool == Tool::Fill && input.leftPressed && state.selection.hasHover) {
+    FloodFill(state, cell.x, cell.y, state.currentTileIndex);
+  }
+
+  if (state.currentTool == Tool::Rect) {
+    if (!state.rectActive && state.selection.hasHover) {
+      if (input.leftPressed) {
+        state.rectActive = true;
+        state.rectStart = cell;
+        state.rectEnd = cell;
+        state.rectErase = false;
+      } else if (input.rightPressed) {
+        state.rectActive = true;
+        state.rectStart = cell;
+        state.rectEnd = cell;
+        state.rectErase = true;
+      }
+    }
+
+    if (state.rectActive && (input.leftDown || input.rightDown)) {
+      state.rectEnd = cell;
+    }
+
+    if (state.rectActive && (input.leftReleased || input.rightReleased)) {
+      const int tileId = state.rectErase ? 0 : state.currentTileIndex;
+      ApplyRect(state, state.rectStart, state.rectEnd, tileId);
+      state.rectActive = false;
+    }
+  } else {
+    if (state.strokeButton == StrokeButton::None) {
+      if (input.leftPressed) {
+        if (state.currentTool == Tool::Erase) {
+          BeginStroke(state, StrokeButton::Left, 0);
+        } else if (state.currentTool == Tool::Paint) {
+          BeginStroke(state, StrokeButton::Left, state.currentTileIndex);
+        }
+      }
+    }
+
+    if (state.strokeButton == StrokeButton::Left && input.leftDown && state.selection.hasHover) {
+      ApplyPaint(state, cell.x, cell.y);
+    }
+
+    if (state.strokeButton == StrokeButton::Left && input.leftReleased) {
+      EndStroke(state);
     }
   }
 
-  if (state.strokeButton == StrokeButton::Left && input.leftDown && state.selection.hasHover) {
-    ApplyPaint(state, cell.x, cell.y);
+  if (state.currentTool != Tool::Rect && input.rightPressed && state.selection.hasHover) {
+    state.selection.BeginRect(cell);
   }
-
-  if (state.strokeButton == StrokeButton::Right && input.rightDown && state.selection.hasHover) {
-    ApplyPaint(state, cell.x, cell.y);
+  if (state.selection.isSelecting && input.rightDown) {
+    state.selection.UpdateRect(cell);
   }
-
-  if (state.strokeButton == StrokeButton::Left && input.leftReleased) {
-    EndStroke(state);
-  }
-
-  if (state.strokeButton == StrokeButton::Right && input.rightReleased) {
-    EndStroke(state);
+  if (state.selection.isSelecting && input.rightReleased) {
+    state.selection.EndRect(GetSelectionMode(input));
   }
 }
 
@@ -103,7 +235,9 @@ void EndStroke(EditorState& state) {
     return;
   }
 
-  state.history.Push(std::move(state.currentStroke));
+  if (!state.currentStroke.changes.empty()) {
+    state.history.Push(std::move(state.currentStroke));
+  }
   state.currentStroke = PaintCommand{};
   state.strokeButton = StrokeButton::None;
   state.strokeTileId = 0;
@@ -127,6 +261,7 @@ bool LoadTileMap(EditorState& state, const std::string& path, std::string* error
   state.tileMap.SetData(width, height, tileSize, std::move(data));
   state.atlas = loadedAtlas;
   state.history.Clear();
+  state.selection.Resize(width, height);
   state.hasUnsavedChanges = false;
   return true;
 }

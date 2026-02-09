@@ -23,6 +23,7 @@ public:
   bool ShouldClose() const;
   void SetShouldClose(bool shouldClose);
   void SetVsync(bool enabled);
+  void SetTitle(const char* title);
 
   GLFWwindow* GetNative() const;
   Vec2i GetFramebufferSize() const;

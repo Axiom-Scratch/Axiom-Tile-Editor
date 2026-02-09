@@ -1,6 +1,7 @@
 {
-  "current": "assets/maps/map.json",
+  "current": "hi",
   "recent": [
+    "hi",
     "assets/maps/map.json"
   ],
   "windowWidth": 1280,
@@ -12,9 +13,9 @@
   "atlasRows": 1,
   "themePreset": "TrueDark",
   "themeGlobalAlpha": 1,
-  "themeWindowBgAlpha": 0.98,
+  "themeWindowBgAlpha": 1,
   "themeFrameBgAlpha": 0.95,
-  "themePopupBgAlpha": 0.98,
-  "themeRounding": 4,
+  "themePopupBgAlpha": 1,
+  "themeRounding": 8,
   "themeBoostContrast": 0
 }
