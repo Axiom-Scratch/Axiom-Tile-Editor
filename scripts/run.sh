@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 
 CONFIG="debug"
 case "${1:-}" in
@@ -13,7 +14,7 @@ case "${1:-}" in
     ;;
 esac
 
-BUILD_DIR="$ROOT_DIR/build/$CONFIG"
+BUILD_DIR="$ROOT/build/$CONFIG"
 BIN_PATH="$BUILD_DIR/tile_editor"
 
 if [[ ! -x "$BIN_PATH" ]]; then
@@ -21,5 +22,4 @@ if [[ ! -x "$BIN_PATH" ]]; then
   exit 1
 fi
 
-cd "$ROOT_DIR"
 exec "$BIN_PATH"

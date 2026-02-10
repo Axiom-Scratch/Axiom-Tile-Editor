@@ -1,15 +1,15 @@
 {
-  "current": "hi",
+  "current": "assets/maps/map.json",
   "recent": [
-    "hi",
-    "assets/maps/map.json"
+    "assets/maps/map.json",
+    "hi"
   ],
-  "windowWidth": 1280,
-  "windowHeight": 720,
+  "windowWidth": 1920,
+  "windowHeight": 995,
   "atlasPath": "assets/textures/atlas.png",
   "atlasTileW": 32,
   "atlasTileH": 32,
-  "atlasCols": 1,
+  "atlasCols": 3,
   "atlasRows": 1,
   "themePreset": "TrueDark",
   "themeGlobalAlpha": 1,

@@ -31,6 +31,8 @@ private:
   Input m_input;
   Renderer2D m_renderer;
   Texture m_atlasTexture;
+  std::string m_loadedAtlasPath;
+  bool m_atlasLoaded = false;
   Framebuffer m_sceneFramebuffer;
   OrthoCamera m_camera;
   EditorState m_editor;

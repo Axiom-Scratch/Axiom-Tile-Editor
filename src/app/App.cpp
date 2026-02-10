@@ -122,7 +122,12 @@ bool App::Init() {
   if (m_editor.atlas.tileH <= 0) {
     m_editor.atlas.tileH = m_editor.tileMap.GetTileSize();
   }
-  m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+  m_atlasLoaded = m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+  m_loadedAtlasPath = m_editor.atlas.path;
+  if (m_atlasLoaded) {
+    Log::Info("Loaded atlas " + m_loadedAtlasPath + " (" + std::to_string(m_atlasTexture.GetWidth()) + "x" +
+              std::to_string(m_atlasTexture.GetHeight()) + ")");
+  }
   ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
 
   m_input.SetActions(&m_actions);
@@ -237,8 +242,15 @@ void App::Run() {
       if (LoadTileMap(m_editor, path, &error)) {
         Log::Info("Loaded tilemap from " + path);
         ui::AddRecentFile(m_uiState, path);
-        m_atlasTexture.LoadFromFile(m_editor.atlas.path);
-        ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
+        if (!m_atlasLoaded || m_loadedAtlasPath != m_editor.atlas.path) {
+          m_atlasLoaded = m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+          m_loadedAtlasPath = m_editor.atlas.path;
+          if (m_atlasLoaded) {
+            Log::Info("Loaded atlas " + m_loadedAtlasPath + " (" + std::to_string(m_atlasTexture.GetWidth()) + "x" +
+                      std::to_string(m_atlasTexture.GetHeight()) + ")");
+          }
+          ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
+        }
       } else {
         Log::Error("Failed to load tilemap: " + error);
       }
@@ -285,7 +297,12 @@ void App::Run() {
       if (!uiOutput.atlasPath.empty()) {
         m_editor.atlas.path = uiOutput.atlasPath;
       }
-      m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+      m_atlasLoaded = m_atlasTexture.LoadFromFile(m_editor.atlas.path);
+      m_loadedAtlasPath = m_editor.atlas.path;
+      if (m_atlasLoaded) {
+        Log::Info("Loaded atlas " + m_loadedAtlasPath + " (" + std::to_string(m_atlasTexture.GetWidth()) + "x" +
+                  std::to_string(m_atlasTexture.GetHeight()) + ")");
+      }
       ResolveAtlasGrid(m_editor.atlas, m_atlasTexture);
     }
 
