@@ -9,19 +9,12 @@ Framebuffer::~Framebuffer() {
   Destroy();
 }
 
-void Framebuffer::Resize(int width, int height) {
-  if (width < 1 || height < 1) {
-    Destroy();
-    m_width = 0;
-    m_height = 0;
-    return;
-  }
-
-  if (m_width == width && m_height == height && m_fbo != 0) {
-    return;
-  }
-
+void Framebuffer::Create(int width, int height) {
   Destroy();
+  if (width < 1 || height < 1) {
+    return;
+  }
+
   m_width = width;
   m_height = height;
 
@@ -42,11 +35,19 @@ void Framebuffer::Resize(int width, int height) {
   glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_width, m_height);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthRbo);
 
-  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-    Log::Error("Scene framebuffer incomplete.");
+  const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+  if (status != GL_FRAMEBUFFER_COMPLETE) {
+    Log::Error("Framebuffer incomplete. Status: " + std::to_string(static_cast<unsigned int>(status)));
   }
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Framebuffer::Resize(int width, int height) {
+  if (m_width == width && m_height == height && m_fbo != 0) {
+    return;
+  }
+  Create(width, height);
 }
 
 void Framebuffer::Bind() const {
@@ -70,6 +71,8 @@ void Framebuffer::Destroy() {
     glDeleteFramebuffers(1, &m_fbo);
     m_fbo = 0;
   }
+  m_width = 0;
+  m_height = 0;
 }
 
 } // namespace te

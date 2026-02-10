@@ -176,7 +176,8 @@ void App::Run() {
 
     const bool blockKeys = imguiActive && io.WantCaptureKeyboard;
     const bool popupOpen = imguiActive && ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
-    const bool blockMouse = popupOpen || (imguiActive && io.WantCaptureMouse && !m_uiState.sceneHovered);
+    const bool wantsMouse = imguiActive && io.WantCaptureMouse;
+    const bool blockMouse = popupOpen || wantsMouse;
     const bool allowMouse = m_uiState.sceneHovered && !blockMouse;
     const bool allowKeyboard = !blockKeys;
 
@@ -355,15 +356,20 @@ void App::Run() {
 
     m_camera.SetPosition(camPos);
 
-    Vec2 mouseWorld{};
-    if (hasScene) {
+    Vec2 mouseWorld{-100000.0f, -100000.0f};
+    if (hasScene && allowMouse) {
       const Vec2 mousePos = m_input.GetMousePos();
       const Vec2 localPos{mousePos.x - m_uiState.sceneRect.x, mousePos.y - m_uiState.sceneRect.y};
-      const Vec2 localFb{localPos.x * sceneScaleX, localPos.y * sceneScaleY};
+      Vec2 normalized{0.0f, 0.0f};
+      if (m_uiState.sceneRect.width > 0.0f && m_uiState.sceneRect.height > 0.0f) {
+        normalized.x = localPos.x / m_uiState.sceneRect.width;
+        normalized.y = localPos.y / m_uiState.sceneRect.height;
+      }
+      normalized.x = std::clamp(normalized.x, 0.0f, 1.0f);
+      normalized.y = std::clamp(normalized.y, 0.0f, 1.0f);
+      const Vec2 localFb{normalized.x * static_cast<float>(sceneViewport.x),
+                         normalized.y * static_cast<float>(sceneViewport.y)};
       mouseWorld = m_camera.ScreenToWorld(localFb, sceneViewport);
-    }
-    if (!hasScene || !m_uiState.sceneHovered) {
-      mouseWorld = {-100000.0f, -100000.0f};
     }
 
     EditorInput editorInput{};

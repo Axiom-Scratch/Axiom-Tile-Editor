@@ -555,7 +555,7 @@ void DrawSceneView(EditorUIState& state, EditorUIOutput& out, Framebuffer& frame
   const int fbHeight = std::max(1, static_cast<int>(sceneSize.y * io.DisplayFramebufferScale.y));
   framebuffer.Resize(fbWidth, fbHeight);
 
-  ImTextureID texId = static_cast<ImTextureID>(static_cast<intptr_t>(framebuffer.GetColorTexture()));
+  ImTextureID texId = static_cast<ImTextureID>(static_cast<intptr_t>(framebuffer.ColorTexture()));
 #if IMGUI_VERSION_NUM >= 19200
   ImGui::Image(ImTextureRef(texId), sceneSize, ImVec2(0, 1), ImVec2(1, 0));
 #else
