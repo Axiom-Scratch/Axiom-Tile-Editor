@@ -1,9 +1,10 @@
 {
-  "current": "assets/autosave/autosave.json",
+  "current": "assets/maps/NewMap.json",
   "recent": [
-    "assets/autosave/autosave.json",
     "assets/maps/NewMap.json",
+    "assets/maps/NewMap3.json",
     "assets/maps/map.json",
+    "assets/autosave/autosave.json",
     "hi"
   ],
   "windowWidth": 1920,
@@ -15,13 +16,13 @@
   "atlasRows": 1,
   "themePreset": "TrueDark",
   "themeGlobalAlpha": 1,
-  "themeWindowBgAlpha": 1,
-  "themeFrameBgAlpha": 0.86,
-  "themePopupBgAlpha": 1,
-  "themeRounding": 4,
+  "themeWindowBgAlpha": 0.98,
+  "themeFrameBgAlpha": 0.95,
+  "themePopupBgAlpha": 0.98,
+  "themeRounding": 8,
   "themeBoostContrast": 0,
-  "autosaveEnabled": 1,
-  "autosaveInterval": 60,
+  "autosaveEnabled": 0,
+  "autosaveInterval": 101,
   "autosavePath": "assets/autosave/autosave.json",
   "gridCellSize": 0,
   "gridMajorStep": 8,
@@ -30,5 +31,5 @@
   "gridColorB": 0.18,
   "gridAlpha": 0.7,
   "invertZoom": 0,
-  "panSpeed": 1
+  "panSpeed": 3
 }

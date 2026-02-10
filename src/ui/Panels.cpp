@@ -612,6 +612,34 @@ std::filesystem::path MakeMapCopyPath(const std::filesystem::path& sourcePath) {
   return sourcePath;
 }
 
+bool WouldCropNonEmpty(const EditorState& editor, int newWidth, int newHeight) {
+  const int oldWidth = editor.tileMap.GetWidth();
+  const int oldHeight = editor.tileMap.GetHeight();
+  if (newWidth >= oldWidth && newHeight >= oldHeight) {
+    return false;
+  }
+  if (newWidth <= 0 || newHeight <= 0) {
+    return true;
+  }
+  for (const Layer& layer : editor.layers) {
+    if (static_cast<int>(layer.tiles.size()) < oldWidth * oldHeight) {
+      continue;
+    }
+    for (int y = 0; y < oldHeight; ++y) {
+      for (int x = 0; x < oldWidth; ++x) {
+        if (x < newWidth && y < newHeight) {
+          continue;
+        }
+        const int index = y * oldWidth + x;
+        if (layer.tiles[static_cast<size_t>(index)] != 0) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 void DrawMenuBar(EditorUIState& state, EditorUIOutput& out, const EditorState& editor) {
   if (!ImGui::BeginMainMenuBar()) {
     return;
@@ -1046,10 +1074,46 @@ void DrawInspector(EditorUIState& state, EditorUIOutput& out, EditorState& edito
     }
     if (openTilemap) {
       if (BeginInspectorTable()) {
+        auto requestResize = [&](int newWidth, int newHeight) {
+          newWidth = std::max(1, newWidth);
+          newHeight = std::max(1, newHeight);
+          if (newWidth == editor.tileMap.GetWidth() && newHeight == editor.tileMap.GetHeight()) {
+            return;
+          }
+          state.pendingMapWidth = newWidth;
+          state.pendingMapHeight = newHeight;
+          if (WouldCropNonEmpty(editor, newWidth, newHeight)) {
+            state.openResizeModal = true;
+          } else {
+            out.requestResizeMap = true;
+            out.resizeWidth = newWidth;
+            out.resizeHeight = newHeight;
+          }
+        };
+
         InspectorRowLabel("Width");
         IntStepper("map_width", &state.pendingMapWidth, 1, 1, 100000);
         InspectorRowLabel("Height");
         IntStepper("map_height", &state.pendingMapHeight, 1, 1, 100000);
+
+        InspectorRowLabel("Quick");
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Button("Set 100x100", ImVec2(-1.0f, 0.0f))) {
+          requestResize(100, 100);
+        }
+
+        InspectorRowLabel("Presets");
+        ImGui::PushID("map_presets");
+        if (ImGui::Button("32x32")) requestResize(32, 32);
+        ImGui::SameLine();
+        if (ImGui::Button("64x64")) requestResize(64, 64);
+        ImGui::SameLine();
+        if (ImGui::Button("100x100")) requestResize(100, 100);
+        ImGui::SameLine();
+        if (ImGui::Button("128x128")) requestResize(128, 128);
+        ImGui::SameLine();
+        if (ImGui::Button("256x256")) requestResize(256, 256);
+        ImGui::PopID();
 
         InspectorRowLabel("Tile Size");
         ImGui::Text("%d", editor.tileMap.GetTileSize());
@@ -1057,7 +1121,7 @@ void DrawInspector(EditorUIState& state, EditorUIOutput& out, EditorState& edito
         InspectorRowLabel("Resize");
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::Button("Apply", ImVec2(-1.0f, 0.0f))) {
-          state.openResizeModal = true;
+          requestResize(state.pendingMapWidth, state.pendingMapHeight);
         }
         EndInspectorTable();
       }
@@ -1692,7 +1756,8 @@ void DrawResizeModal(EditorUIState& state, EditorUIOutput& out) {
   }
 
   if (ImGui::BeginPopupModal("Resize Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::Text("Resize the map to %d x %d?", state.pendingMapWidth, state.pendingMapHeight);
+    ImGui::TextWrapped("This will crop tiles outside %d x %d. Continue?", state.pendingMapWidth,
+                       state.pendingMapHeight);
     if (ImGui::Button("Apply")) {
       out.requestResizeMap = true;
       out.resizeWidth = state.pendingMapWidth;
@@ -1762,7 +1827,7 @@ void DrawOverwriteModal(EditorUIState& state, EditorUIOutput& out) {
   }
 }
 
-void DrawOpenModal(EditorUIState& state, EditorUIOutput& out, const EditorState& editor) {
+void DrawOpenModal(EditorUIState& state, EditorUIOutput& out) {
   if (state.showOpenModal) {
     ImGui::OpenPopup("Open Map");
     state.showOpenModal = false;
@@ -1778,14 +1843,8 @@ void DrawOpenModal(EditorUIState& state, EditorUIOutput& out, const EditorState&
       for (const auto& path : maps) {
         const std::string relPath = path.generic_string();
         if (ImGui::Selectable(relPath.c_str())) {
-          if (editor.hasUnsavedChanges) {
-            state.pendingAction = PendingAction::LoadPath;
-            state.pendingLoadPath = relPath;
-            state.showConfirmOpen = true;
-          } else {
-            out.requestLoad = true;
-            out.loadPath = relPath;
-          }
+          out.requestLoad = true;
+          out.loadPath = relPath;
           ImGui::CloseCurrentPopup();
         }
       }
@@ -1797,7 +1856,7 @@ void DrawOpenModal(EditorUIState& state, EditorUIOutput& out, const EditorState&
   }
 }
 
-void DrawRecoverAutosaveModal(EditorUIState& state, EditorUIOutput& out, const EditorState& editor) {
+void DrawRecoverAutosaveModal(EditorUIState& state, EditorUIOutput& out) {
   if (state.showRecoverAutosave) {
     ImGui::OpenPopup("Recover Autosave");
     state.showRecoverAutosave = false;
@@ -1816,14 +1875,8 @@ void DrawRecoverAutosaveModal(EditorUIState& state, EditorUIOutput& out, const E
         const std::string stamp = FormatTimestamp(std::filesystem::last_write_time(path));
         ImGui::PushID(relPath.c_str());
         if (ImGui::Selectable(relPath.c_str())) {
-          if (editor.hasUnsavedChanges) {
-            state.pendingAction = PendingAction::LoadPath;
-            state.pendingLoadPath = relPath;
-            state.showConfirmOpen = true;
-          } else {
-            out.requestLoad = true;
-            out.loadPath = relPath;
-          }
+          out.requestLoad = true;
+          out.loadPath = relPath;
           ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -2185,8 +2238,8 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
 
   DrawSaveAsModal(state, out);
   DrawOverwriteModal(state, out);
-  DrawOpenModal(state, out, editor);
-  DrawRecoverAutosaveModal(state, out, editor);
+  DrawOpenModal(state, out);
+  DrawRecoverAutosaveModal(state, out);
   DrawStampModal(state, out);
   DrawAboutModal(state);
   DrawPreferencesModal(state);

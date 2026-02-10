@@ -579,13 +579,7 @@ void App::Run() {
 
     if (uiOutput.requestResizeMap) {
       EndStroke(m_editor);
-      m_editor.tileMap.Resize(uiOutput.resizeWidth, uiOutput.resizeHeight, m_editor.tileMap.GetTileSize());
-      for (Layer& layer : m_editor.layers) {
-        layer.tiles.assign(static_cast<size_t>(uiOutput.resizeWidth * uiOutput.resizeHeight), 0);
-      }
-      m_editor.history.Clear();
-      m_editor.selection.Resize(uiOutput.resizeWidth, uiOutput.resizeHeight);
-      m_editor.hasUnsavedChanges = true;
+      SetMapSize(m_editor, uiOutput.resizeWidth, uiOutput.resizeHeight);
       m_uiState.pendingMapWidth = 0;
       m_uiState.pendingMapHeight = 0;
     }
@@ -1084,6 +1078,7 @@ void App::Run() {
           }
           PaintCommand command;
           command.layerIndex = layerIndex;
+          command.mapWidth = width;
           for (int i = 0; i < width * height; ++i) {
             const int before = layer.tiles[static_cast<size_t>(i)];
             const int after = csvData[static_cast<size_t>(i)];
@@ -1142,6 +1137,7 @@ void App::Run() {
       } else if (m_uiState.pendingAction == ui::PendingAction::NewMap) {
         handleNewMap();
       } else if (m_uiState.pendingAction == ui::PendingAction::OpenPicker) {
+        m_editor.hasUnsavedChanges = false;
         m_uiState.showOpenModal = true;
       }
       m_uiState.pendingAction = ui::PendingAction::None;

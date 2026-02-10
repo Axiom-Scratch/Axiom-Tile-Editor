@@ -94,6 +94,7 @@ void InitEditor(EditorState& state, int width, int height, int tileSize);
 void UpdateEditor(EditorState& state, const EditorInput& input);
 void EndStroke(EditorState& state);
 void BuildLineCells(const Vec2i& a, const Vec2i& b, std::vector<Vec2i>& out);
+bool SetMapSize(EditorState& state, int width, int height);
 
 bool SaveTileMap(const EditorState& state, const std::string& path);
 bool LoadTileMap(EditorState& state, const std::string& path, std::string* errorOut = nullptr);
