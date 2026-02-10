@@ -23,6 +23,8 @@ Screenshots go here.
   cmake ninja glfw-x11 libx11 libxrandr libxinerama libxcursor libxi
 
 ## Clone & Build
+Submodules missing? Run: `git submodule update --init --recursive`
+
 Normal clone:
 ```bash
 git clone <repo-url>

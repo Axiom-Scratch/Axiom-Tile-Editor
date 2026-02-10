@@ -45,6 +45,11 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
+USE_SUBMODULE_DEPS_VALUE="${USE_SUBMODULE_DEPS:-1}"
+if [[ "$USE_SUBMODULE_DEPS_VALUE" != "0" ]] && [[ ! -f "$ROOT_DIR/third_party/glfw/CMakeLists.txt" ]]; then
+  echo "Submodules missing. Run: git submodule update --init --recursive" >&2
+fi
+
 CMAKE_ARGS=(
   -S "$ROOT_DIR"
   -B "$BUILD_DIR"

@@ -425,11 +425,11 @@ void App::Run() {
       if (sceneViewport.x > 0 && sceneViewport.y > 0 && tileSize > 0) {
         const float halfW = static_cast<float>(sceneViewport.x) * 0.5f / m_camera.GetZoom();
         const float halfH = static_cast<float>(sceneViewport.y) * 0.5f / m_camera.GetZoom();
-        const Vec2 camPos = m_camera.GetPosition();
-        const float left = camPos.x - halfW;
-        const float right = camPos.x + halfW;
-        const float bottom = camPos.y - halfH;
-        const float top = camPos.y + halfH;
+        const Vec2 camPosNow = m_camera.GetPosition();
+        const float left = camPosNow.x - halfW;
+        const float right = camPosNow.x + halfW;
+        const float bottom = camPosNow.y - halfH;
+        const float top = camPosNow.y + halfH;
         minX = std::max(0, static_cast<int>(std::floor(left / static_cast<float>(tileSize))) - 1);
         maxX = std::min(mapWidth - 1, static_cast<int>(std::ceil(right / static_cast<float>(tileSize))) + 1);
         minY = std::max(0, static_cast<int>(std::floor(bottom / static_cast<float>(tileSize))) - 1);

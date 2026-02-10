@@ -15,6 +15,8 @@ The project supports three dependency modes:
 - Submodules: uses `third_party/glfw` if present and `USE_SUBMODULE_DEPS=ON`
 - System GLFW: set `USE_SYSTEM_GLFW=1` to use your distro package
 
+Submodules missing? Run: `git submodule update --init --recursive`
+
 ## Recommended Build Flow
 1. Initialize submodules if you want offline builds.
 2. Build with the default scripts.
