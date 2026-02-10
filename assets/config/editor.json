@@ -1,12 +1,13 @@
 {
-  "current": "assets/maps/NewMap.json",
+  "current": "assets/autosave/autosave.json",
   "recent": [
+    "assets/autosave/autosave.json",
     "assets/maps/NewMap.json",
     "assets/maps/map.json",
     "hi"
   ],
-  "windowWidth": 1280,
-  "windowHeight": 720,
+  "windowWidth": 1920,
+  "windowHeight": 995,
   "atlasPath": "assets/textures/atlas.png",
   "atlasTileW": 32,
   "atlasTileH": 32,
@@ -22,6 +23,12 @@
   "autosaveEnabled": 1,
   "autosaveInterval": 60,
   "autosavePath": "assets/autosave/autosave.json",
+  "gridCellSize": 0,
+  "gridMajorStep": 8,
+  "gridColorR": 0.15,
+  "gridColorG": 0.15,
+  "gridColorB": 0.18,
+  "gridAlpha": 0.7,
   "invertZoom": 0,
   "panSpeed": 1
 }

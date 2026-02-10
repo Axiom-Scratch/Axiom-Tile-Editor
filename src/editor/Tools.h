@@ -24,6 +24,8 @@ enum class Tool {
   Rect,
   Fill,
   Line,
+  Stamp,
+  Pick,
   Select,
   Move,
   Pan
@@ -34,6 +36,7 @@ struct Layer {
   bool visible = true;
   bool locked = false;
   float opacity = 1.0f;
+  std::vector<int> tiles;
 };
 
 struct EditorInput {
@@ -59,6 +62,7 @@ struct EditorState {
   Tool currentTool = Tool::Paint;
   std::vector<Layer> layers;
   int selectedLayer = -1;
+  int activeLayer = 0;
   bool hasUnsavedChanges = false;
   StrokeButton strokeButton = StrokeButton::None;
   int strokeTileId = 0;
@@ -74,6 +78,14 @@ struct EditorState {
   bool moveActive = false;
   Vec2i moveStart{};
   Vec2i moveEnd{};
+  Vec2 mouseWorld{};
+  int brushSize = 1;
+  Tool previousTool = Tool::Paint;
+  bool hasLastPaintCell = false;
+  Vec2i lastPaintCell{};
+  int stampWidth = 0;
+  int stampHeight = 0;
+  std::vector<int> stampTiles;
 
   Vec4 sceneBgColor{0.18f, 0.18f, 0.20f, 1.0f};
 };

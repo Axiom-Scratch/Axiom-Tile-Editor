@@ -1,7 +1,5 @@
 #include "editor/Commands.h"
 
-#include "editor/TileMap.h"
-
 #include <utility>
 
 namespace te {
@@ -14,7 +12,7 @@ void CommandHistory::Push(PaintCommand command) {
   m_redo.clear();
 }
 
-bool CommandHistory::Undo(TileMap& map) {
+bool CommandHistory::Undo(int width, const ApplyChangeFn& apply) {
   if (m_undo.empty()) {
     return false;
   }
@@ -23,16 +21,16 @@ bool CommandHistory::Undo(TileMap& map) {
   m_undo.pop_back();
 
   for (const CellChange& change : command.changes) {
-    const int x = change.index % map.GetWidth();
-    const int y = change.index / map.GetWidth();
-    map.SetTile(x, y, change.before);
+    const int x = change.index % width;
+    const int y = change.index / width;
+    apply(command.layerIndex, x, y, change.before);
   }
 
   m_redo.push_back(std::move(command));
   return true;
 }
 
-bool CommandHistory::Redo(TileMap& map) {
+bool CommandHistory::Redo(int width, const ApplyChangeFn& apply) {
   if (m_redo.empty()) {
     return false;
   }
@@ -41,9 +39,9 @@ bool CommandHistory::Redo(TileMap& map) {
   m_redo.pop_back();
 
   for (const CellChange& change : command.changes) {
-    const int x = change.index % map.GetWidth();
-    const int y = change.index / map.GetWidth();
-    map.SetTile(x, y, change.after);
+    const int x = change.index % width;
+    const int y = change.index / width;
+    apply(command.layerIndex, x, y, change.after);
   }
 
   m_undo.push_back(std::move(command));

@@ -10,9 +10,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -36,6 +39,60 @@ std::string EscapeJson(const std::string& value) {
     out.push_back(c);
   }
   return out;
+}
+
+bool EndsWith(const std::string& value, const std::string& suffix) {
+  if (value.size() < suffix.size()) {
+    return false;
+  }
+  return value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+std::string EnsureJsonExtension(const std::string& path) {
+  if (path.empty()) {
+    return path;
+  }
+  if (EndsWith(path, ".json")) {
+    return path;
+  }
+  return path + ".json";
+}
+
+std::string FormatTimestamp(const std::filesystem::file_time_type& time) {
+  using namespace std::chrono;
+  const auto now = std::filesystem::file_time_type::clock::now();
+  const auto systemNow = system_clock::now();
+  const auto adjusted = time - now + systemNow;
+  const auto timePoint = time_point_cast<system_clock::duration>(adjusted);
+  std::time_t stamp = system_clock::to_time_t(timePoint);
+  std::tm tm{};
+#if defined(_WIN32)
+  localtime_s(&tm, &stamp);
+#else
+  localtime_r(&stamp, &tm);
+#endif
+  char buffer[32];
+  std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M", &tm);
+  return buffer;
+}
+
+std::vector<std::filesystem::path> CollectFiles(const std::filesystem::path& root,
+                                                const std::function<bool(const std::filesystem::path&)>& filter) {
+  std::vector<std::filesystem::path> results;
+  if (!std::filesystem::exists(root)) {
+    return results;
+  }
+  for (const auto& entry : std::filesystem::directory_iterator(root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    if (filter(entry.path())) {
+      results.push_back(entry.path());
+    }
+  }
+  std::sort(results.begin(), results.end(),
+            [](const auto& a, const auto& b) { return a.filename().string() < b.filename().string(); });
+  return results;
 }
 
 std::string UnescapeJson(const std::string& value) {
@@ -251,6 +308,10 @@ const char* ToolLabel(Tool tool) {
       return "Fill";
     case Tool::Line:
       return "Line";
+    case Tool::Stamp:
+      return "Stamp";
+    case Tool::Pick:
+      return "Pick";
     case Tool::Select:
       return "Select";
     case Tool::Move:
@@ -275,6 +336,10 @@ void ApplyDefaults(EditorUIState& state) {
   state.autosaveEnabled = false;
   state.autosaveInterval = 60.0f;
   state.autosavePath = "assets/autosave/autosave.json";
+  state.gridCellSize = 0.0f;
+  state.gridMajorStep = 8;
+  state.gridColor = {0.15f, 0.15f, 0.18f, 1.0f};
+  state.gridAlpha = 0.7f;
   state.invertZoom = false;
   state.panSpeed = 1.0f;
 }
@@ -319,6 +384,12 @@ void SaveEditorConfigInternal(const EditorUIState& state) {
   file << "  \"autosaveEnabled\": " << (state.autosaveEnabled ? 1 : 0) << ",\n";
   file << "  \"autosaveInterval\": " << state.autosaveInterval << ",\n";
   file << "  \"autosavePath\": \"" << EscapeJson(state.autosavePath) << "\",\n";
+  file << "  \"gridCellSize\": " << state.gridCellSize << ",\n";
+  file << "  \"gridMajorStep\": " << state.gridMajorStep << ",\n";
+  file << "  \"gridColorR\": " << state.gridColor.r << ",\n";
+  file << "  \"gridColorG\": " << state.gridColor.g << ",\n";
+  file << "  \"gridColorB\": " << state.gridColor.b << ",\n";
+  file << "  \"gridAlpha\": " << state.gridAlpha << ",\n";
   file << "  \"invertZoom\": " << (state.invertZoom ? 1 : 0) << ",\n";
   file << "  \"panSpeed\": " << state.panSpeed << "\n";
   file << "}\n";
@@ -458,9 +529,9 @@ int CountFilesInDirectory(const std::filesystem::path& root) {
   return count;
 }
 
-bool IsPathUnderAssets(const std::filesystem::path& path) {
+bool IsPathUnderMaps(const std::filesystem::path& path) {
   std::error_code ec;
-  std::filesystem::path root = std::filesystem::weakly_canonical("assets", ec);
+  std::filesystem::path root = std::filesystem::weakly_canonical("assets/maps", ec);
   if (ec) {
     return false;
   }
@@ -527,71 +598,153 @@ bool WriteNewMapFile(const std::filesystem::path& path, const EditorState& edito
   return true;
 }
 
-bool DuplicateAssetFile(const std::filesystem::path& sourcePath, std::filesystem::path& outPath) {
-  if (!IsPathUnderAssets(sourcePath) || !std::filesystem::is_regular_file(sourcePath)) {
-    return false;
+std::filesystem::path MakeMapCopyPath(const std::filesystem::path& sourcePath) {
+  const std::filesystem::path parent = sourcePath.parent_path();
+  const std::string stem = sourcePath.stem().string();
+  const std::string ext = sourcePath.extension().string();
+  for (int i = 1; i <= 999; ++i) {
+    const std::string name = stem + "_copy_" + std::to_string(i) + ext;
+    std::filesystem::path candidate = parent / name;
+    if (!std::filesystem::exists(candidate)) {
+      return candidate;
+    }
   }
-  const std::filesystem::path target = MakeUniquePath(sourcePath, "_copy");
-  std::error_code ec;
-  std::filesystem::copy_file(sourcePath, target, std::filesystem::copy_options::none, ec);
-  if (ec) {
-    return false;
-  }
-  outPath = target;
-  return true;
+  return sourcePath;
 }
 
-void DrawMenuBar(EditorUIState& state, EditorUIOutput& out) {
+void DrawMenuBar(EditorUIState& state, EditorUIOutput& out, const EditorState& editor) {
   if (!ImGui::BeginMainMenuBar()) {
     return;
   }
 
+  auto queuePending = [&](PendingAction action, const std::string& path) {
+    state.pendingAction = action;
+    state.pendingLoadPath = path;
+    if (action == PendingAction::Quit) {
+      state.showConfirmQuit = true;
+    } else {
+      state.showConfirmOpen = true;
+    }
+  };
+
+  auto requestNew = [&]() {
+    if (editor.hasUnsavedChanges) {
+      queuePending(PendingAction::NewMap, "");
+    } else {
+      out.requestNewMap = true;
+    }
+  };
+
+  auto requestOpenPicker = [&]() {
+    if (editor.hasUnsavedChanges) {
+      queuePending(PendingAction::OpenPicker, "");
+    } else {
+      state.showOpenModal = true;
+    }
+  };
+
+  auto requestLoadPath = [&](const std::string& path) {
+    if (editor.hasUnsavedChanges) {
+      queuePending(PendingAction::LoadPath, path);
+    } else {
+      out.requestLoad = true;
+      out.loadPath = path;
+    }
+  };
+
+  auto requestQuit = [&]() {
+    if (editor.hasUnsavedChanges) {
+      queuePending(PendingAction::Quit, "");
+    } else {
+      out.requestQuit = true;
+    }
+  };
+
   if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("New", "Ctrl+N")) {
+      requestNew();
+    }
+    if (ImGui::MenuItem("Open...", "Ctrl+O")) {
+      requestOpenPicker();
+    }
+    if (ImGui::BeginMenu("Open Recent", !state.recentFiles.empty())) {
+      for (const std::string& path : state.recentFiles) {
+        if (ImGui::MenuItem(path.c_str())) {
+          requestLoadPath(path);
+        }
+      }
+      ImGui::EndMenu();
+    }
+    ImGui::Separator();
     if (ImGui::MenuItem("Save", "Ctrl+S")) {
       out.requestSave = true;
     }
-    if (ImGui::MenuItem("Load", "Ctrl+O")) {
-      out.requestLoad = true;
-    }
     if (ImGui::MenuItem("Save As...")) {
-      state.openSaveAsModal = true;
+      state.showSaveAs = true;
+    }
+    if (ImGui::MenuItem("Recover Autosave...")) {
+      state.showRecoverAutosave = true;
+    }
+    if (ImGui::MenuItem("Export CSV")) {
+      out.requestExportCsv = true;
+    }
+    if (ImGui::MenuItem("Import CSV")) {
+      out.requestImportCsv = true;
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
-      out.requestQuit = true;
+      requestQuit();
     }
     ImGui::EndMenu();
   }
 
   if (ImGui::BeginMenu("Edit")) {
-    if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
+    if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editor.history.CanUndo())) {
       out.requestUndo = true;
     }
-    if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
+    if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editor.history.CanRedo())) {
       out.requestRedo = true;
     }
     ImGui::Separator();
+    if (ImGui::MenuItem("Create Stamp")) {
+      state.openStampModal = true;
+    }
+    ImGui::Separator();
     if (ImGui::MenuItem("Preferences...")) {
-      state.openPreferencesModal = true;
+      state.showPreferences = true;
     }
     ImGui::EndMenu();
   }
 
   if (ImGui::BeginMenu("View")) {
+    ImGui::MenuItem("Grid", nullptr, &state.showGrid);
+    if (ImGui::MenuItem("Reset Camera")) {
+      out.requestFocus = true;
+    }
+    if (ImGui::MenuItem("Frame", "F")) {
+      out.requestFrame = true;
+    }
+    ImGui::EndMenu();
+  }
+
+  if (ImGui::BeginMenu("Window")) {
+    if (ImGui::MenuItem("Reset Layout")) {
+      state.requestResetLayout = true;
+    }
+    ImGui::Separator();
     ImGui::MenuItem("Hierarchy", nullptr, &state.showHierarchy);
+    ImGui::MenuItem("Scene", nullptr, &state.showScene);
     ImGui::MenuItem("Inspector", nullptr, &state.showInspector);
-    ImGui::MenuItem("Settings", nullptr, &state.showSettings);
+    ImGui::MenuItem("Palette", nullptr, &state.showTilePalette);
     ImGui::MenuItem("Project", nullptr, &state.showProject);
     ImGui::MenuItem("Console", nullptr, &state.showConsole);
-    ImGui::MenuItem("Tile Palette", nullptr, &state.showTilePalette);
-    ImGui::Separator();
-    ImGui::MenuItem("Grid", nullptr, &state.showGrid);
+    ImGui::MenuItem("Settings", nullptr, &state.showSettings);
     ImGui::EndMenu();
   }
 
   if (ImGui::BeginMenu("Help")) {
     if (ImGui::MenuItem("About")) {
-      state.openAboutModal = true;
+      state.showAbout = true;
     }
     ImGui::EndMenu();
   }
@@ -631,6 +784,8 @@ void DrawToolbar(EditorUIState& state, EditorUIOutput& out, EditorState& editor,
   toolButton("Rect", Tool::Rect);
   ImGui::SameLine();
   toolButton("Line", Tool::Line);
+  ImGui::SameLine();
+  toolButton("Stamp", Tool::Stamp);
   ImGui::SameLine();
   toolButton("Fill", Tool::Fill);
   ImGui::SameLine();
@@ -683,11 +838,30 @@ void DrawToolbar(EditorUIState& state, EditorUIOutput& out, EditorState& editor,
     ImGui::TextUnformatted("W: Rect");
     ImGui::TextUnformatted("E: Fill");
     ImGui::TextUnformatted("R: Erase");
+    ImGui::TextUnformatted("I: Pick");
+    ImGui::TextUnformatted("[ / ]: Brush Size");
     ImGui::TextUnformatted("Space: Pan (hold)");
     ImGui::TextUnformatted("Ctrl+S: Save");
     ImGui::TextUnformatted("Ctrl+O: Open");
     ImGui::TextUnformatted("Ctrl+Shift+S: Save As");
     ImGui::EndTooltip();
+  }
+
+  ImGui::SameLine();
+  ImGui::Separator();
+  ImGui::SameLine();
+  ImGui::TextUnformatted("Brush");
+  ImGui::SameLine();
+  const int brushSizes[] = {1, 2, 4, 8};
+  int brushIndex = 0;
+  for (int i = 0; i < 4; ++i) {
+    if (editor.brushSize == brushSizes[i]) {
+      brushIndex = i;
+      break;
+    }
+  }
+  if (ImGui::Combo("##brush_size", &brushIndex, "1\02\04\08\0")) {
+    editor.brushSize = brushSizes[brushIndex];
   }
 
   ImGui::End();
@@ -742,10 +916,10 @@ void DrawSceneView(EditorUIState& state, EditorUIOutput& out, Framebuffer& frame
 #else
   ImGui::Image(texId, sceneSize, ImVec2(0, 1), ImVec2(1, 0));
 #endif
-  const bool sceneHovered = ImGui::IsItemHovered();
-  const bool sceneActive = ImGui::IsItemActive();
   ImVec2 rectMin = ImGui::GetItemRectMin();
   ImVec2 rectMax = ImGui::GetItemRectMax();
+  const bool sceneHovered = ImGui::IsItemHovered();
+  const bool sceneActive = ImGui::IsItemActive();
   out.sceneHovered = sceneHovered;
   out.sceneActive = sceneActive;
   out.sceneRectMin = {rectMin.x, rectMin.y};
@@ -756,25 +930,70 @@ void DrawSceneView(EditorUIState& state, EditorUIOutput& out, Framebuffer& frame
   ImGui::End();
 }
 
-void DrawHierarchy(EditorState& editor) {
+void DrawHierarchy(EditorUIState& state, EditorState& editor) {
   if (!ImGui::Begin("Hierarchy")) {
     ImGui::End();
     return;
   }
 
-  const bool rootSelected = editor.selectedLayer < 0;
-  if (ImGui::Selectable("Tilemap", rootSelected)) {
-    editor.selectedLayer = -1;
+  if (ImGui::Button("Add Layer")) {
+    Layer layer;
+    layer.name = "Layer " + std::to_string(editor.layers.size());
+    layer.visible = true;
+    layer.locked = false;
+    layer.opacity = 1.0f;
+    layer.tiles.assign(static_cast<size_t>(editor.tileMap.GetWidth() * editor.tileMap.GetHeight()), 0);
+    editor.layers.push_back(std::move(layer));
+    editor.activeLayer = static_cast<int>(editor.layers.size()) - 1;
+    editor.selectedLayer = editor.activeLayer;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Duplicate") && editor.activeLayer >= 0 &&
+      editor.activeLayer < static_cast<int>(editor.layers.size())) {
+    Layer copy = editor.layers[static_cast<size_t>(editor.activeLayer)];
+    copy.name += " Copy";
+    editor.layers.insert(editor.layers.begin() + editor.activeLayer + 1, copy);
+    editor.activeLayer += 1;
+    editor.selectedLayer = editor.activeLayer;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Delete") && editor.activeLayer >= 0 &&
+      editor.activeLayer < static_cast<int>(editor.layers.size())) {
+    editor.selectedLayer = editor.activeLayer;
+    state.pendingLayerDeleteIndex = editor.activeLayer;
+    state.openLayerDeleteModal = true;
   }
 
+  ImGui::Separator();
   if (ImGui::TreeNodeEx("Layers", ImGuiTreeNodeFlags_DefaultOpen)) {
     for (size_t i = 0; i < editor.layers.size(); ++i) {
       const bool selected = editor.selectedLayer == static_cast<int>(i);
-      if (ImGui::Selectable(editor.layers[i].name.c_str(), selected)) {
+      std::string label = editor.layers[i].name;
+      if (editor.activeLayer == static_cast<int>(i)) {
+        label += " (Active)";
+      }
+      if (ImGui::Selectable(label.c_str(), selected)) {
         editor.selectedLayer = static_cast<int>(i);
+        editor.activeLayer = static_cast<int>(i);
       }
     }
     ImGui::TreePop();
+  }
+
+  if (editor.activeLayer >= 0 && editor.activeLayer < static_cast<int>(editor.layers.size())) {
+    if (ImGui::Button("Move Up") && editor.activeLayer > 0) {
+      const std::size_t idx = static_cast<std::size_t>(editor.activeLayer);
+      std::swap(editor.layers[idx], editor.layers[idx - 1]);
+      editor.activeLayer -= 1;
+      editor.selectedLayer = editor.activeLayer;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Move Down") && editor.activeLayer + 1 < static_cast<int>(editor.layers.size())) {
+      const std::size_t idx = static_cast<std::size_t>(editor.activeLayer);
+      std::swap(editor.layers[idx], editor.layers[idx + 1]);
+      editor.activeLayer += 1;
+      editor.selectedLayer = editor.activeLayer;
+    }
   }
 
   ImGui::End();
@@ -900,6 +1119,21 @@ void DrawInspector(EditorUIState& state, EditorUIOutput& out, EditorState& edito
                           ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float);
         InspectorRowLabel("Grid");
         ImGui::Checkbox("##view_grid", &state.showGrid);
+        InspectorRowLabel("Grid Size");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputFloat("##grid_size", &state.gridCellSize, 1.0f, 4.0f, "%.1f");
+        if (state.gridCellSize < 0.0f) {
+          state.gridCellSize = 0.0f;
+        }
+        InspectorRowLabel("Grid Color");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::ColorEdit3("##grid_color", &state.gridColor.r,
+                          ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float);
+        InspectorRowLabel("Grid Alpha");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::SliderFloat("##grid_alpha", &state.gridAlpha, 0.05f, 1.0f, "%.2f");
+        InspectorRowLabel("Major Lines");
+        IntStepper("grid_major", &state.gridMajorStep, 1, 1, 128);
         InspectorRowLabel("Snap");
         ImGui::Checkbox("##view_snap", &state.snapEnabled);
         EndInspectorTable();
@@ -985,9 +1219,9 @@ void DrawSettings(EditorUIState& state) {
 }
 
 void DrawPreferencesModal(EditorUIState& state) {
-  if (state.openPreferencesModal) {
+  if (state.showPreferences) {
     ImGui::OpenPopup("Preferences");
-    state.openPreferencesModal = false;
+    state.showPreferences = false;
   }
 
   if (!ImGui::BeginPopupModal("Preferences", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1062,6 +1296,7 @@ void DrawProjectDirectory(const std::filesystem::path& root,
                           const char* label,
                           bool treatAsMap,
                           bool treatAsTexture,
+                          bool treatAsStamp,
                           const char* filter,
                           bool hasUnsavedChanges,
                           EditorUIState& state,
@@ -1088,7 +1323,8 @@ void DrawProjectDirectory(const std::filesystem::path& root,
     const std::filesystem::path& path = entry.path();
     const std::string name = path.filename().string();
     if (entry.is_directory()) {
-      DrawProjectDirectory(path, name.c_str(), treatAsMap, treatAsTexture, filter, hasUnsavedChanges, state, out);
+      DrawProjectDirectory(path, name.c_str(), treatAsMap, treatAsTexture, treatAsStamp, filter,
+                           hasUnsavedChanges, state, out);
       continue;
     }
 
@@ -1101,8 +1337,9 @@ void DrawProjectDirectory(const std::filesystem::path& root,
     if (ImGui::Selectable(name.c_str())) {
       if (treatAsMap) {
         if (hasUnsavedChanges) {
+          state.pendingAction = PendingAction::LoadPath;
           state.pendingLoadPath = relPath;
-          state.openUnsavedModal = true;
+          state.showConfirmOpen = true;
         } else {
           out.requestLoad = true;
           out.loadPath = relPath;
@@ -1110,14 +1347,18 @@ void DrawProjectDirectory(const std::filesystem::path& root,
       } else if (treatAsTexture) {
         out.atlasPath = relPath;
         out.requestReloadAtlas = true;
+      } else if (treatAsStamp) {
+        out.requestLoadStamp = true;
+        out.stampPath = relPath;
       }
     }
 
     if (ImGui::BeginPopupContextItem("project_item_context")) {
       if (treatAsMap && ImGui::MenuItem("Open")) {
         if (hasUnsavedChanges) {
+          state.pendingAction = PendingAction::LoadPath;
           state.pendingLoadPath = relPath;
-          state.openUnsavedModal = true;
+          state.showConfirmOpen = true;
         } else {
           out.requestLoad = true;
           out.loadPath = relPath;
@@ -1127,15 +1368,21 @@ void DrawProjectDirectory(const std::filesystem::path& root,
         out.atlasPath = relPath;
         out.requestReloadAtlas = true;
       }
-      if (ImGui::MenuItem("Duplicate")) {
-        std::filesystem::path duplicated;
-        if (DuplicateAssetFile(path, duplicated)) {
-          Log::Info("Duplicated: " + duplicated.generic_string());
+      if (treatAsMap && ImGui::MenuItem("Duplicate")) {
+        if (IsPathUnderMaps(path) && std::filesystem::is_regular_file(path)) {
+          std::filesystem::path target = MakeMapCopyPath(path);
+          std::error_code ec;
+          std::filesystem::copy_file(path, target, std::filesystem::copy_options::none, ec);
+          if (ec) {
+            Log::Warn("Failed to duplicate map.");
+          } else {
+            Log::Info("Duplicated: " + target.generic_string());
+          }
         } else {
-          Log::Warn("Failed to duplicate asset.");
+          Log::Warn("Failed to duplicate map.");
         }
       }
-      if (ImGui::MenuItem("Delete")) {
+      if (treatAsMap && ImGui::MenuItem("Delete")) {
         state.pendingDeletePath = relPath;
         state.openDeleteModal = true;
       }
@@ -1181,15 +1428,19 @@ void DrawProject(EditorUIState& state, EditorUIOutput& out, const EditorState& e
   const bool showTextures = state.projectFilterMode == 0 || state.projectFilterMode == 2;
 
   if (showMaps) {
-    DrawProjectDirectory("assets/maps", "assets/maps", true, false, state.projectFilter,
+    DrawProjectDirectory("assets/maps", "assets/maps", true, false, false, state.projectFilter,
                          editor.hasUnsavedChanges, state, out);
   }
   if (showTextures) {
-    DrawProjectDirectory("assets/textures", "assets/textures", false, true, state.projectFilter,
+    DrawProjectDirectory("assets/textures", "assets/textures", false, true, false, state.projectFilter,
+                         editor.hasUnsavedChanges, state, out);
+  }
+  if (state.projectFilterMode == 0 && std::filesystem::exists("assets/stamps")) {
+    DrawProjectDirectory("assets/stamps", "assets/stamps", false, false, true, state.projectFilter,
                          editor.hasUnsavedChanges, state, out);
   }
   if (state.projectFilterMode == 0 && std::filesystem::exists("assets/shaders")) {
-    DrawProjectDirectory("assets/shaders", "assets/shaders", false, false, state.projectFilter,
+    DrawProjectDirectory("assets/shaders", "assets/shaders", false, false, false, state.projectFilter,
                          editor.hasUnsavedChanges, state, out);
   }
 
@@ -1457,16 +1708,147 @@ void DrawResizeModal(EditorUIState& state, EditorUIOutput& out) {
 }
 
 void DrawSaveAsModal(EditorUIState& state, EditorUIOutput& out) {
-  if (state.openSaveAsModal) {
+  if (state.showSaveAs) {
+    if (state.saveAsBuffer[0] == '\0') {
+      EnsureBuffer(state.saveAsBuffer, sizeof(state.saveAsBuffer), "assets/maps/untitled.json");
+    }
     ImGui::OpenPopup("Save As");
-    state.openSaveAsModal = false;
+    state.showSaveAs = false;
   }
 
   if (ImGui::BeginPopupModal("Save As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::InputText("Path", state.saveAsBuffer, sizeof(state.saveAsBuffer));
     if (ImGui::Button("Save")) {
+      std::string path = EnsureJsonExtension(state.saveAsBuffer);
+      if (path.empty()) {
+        Log::Warn("Save As path is empty.");
+      } else if (std::filesystem::exists(path)) {
+        state.pendingOverwritePath = path;
+        state.showOverwriteModal = true;
+      } else {
+        out.requestSaveAs = true;
+        out.saveAsPath = path;
+        ImGui::CloseCurrentPopup();
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void DrawOverwriteModal(EditorUIState& state, EditorUIOutput& out) {
+  if (state.showOverwriteModal) {
+    ImGui::OpenPopup("Overwrite File");
+    state.showOverwriteModal = false;
+  }
+
+  if (ImGui::BeginPopupModal("Overwrite File", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextWrapped("Overwrite existing file?\n%s", state.pendingOverwritePath.c_str());
+    if (ImGui::Button("Overwrite")) {
       out.requestSaveAs = true;
-      out.saveAsPath = state.saveAsBuffer;
+      out.saveAsPath = state.pendingOverwritePath;
+      state.pendingOverwritePath.clear();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+      state.pendingOverwritePath.clear();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void DrawOpenModal(EditorUIState& state, EditorUIOutput& out, const EditorState& editor) {
+  if (state.showOpenModal) {
+    ImGui::OpenPopup("Open Map");
+    state.showOpenModal = false;
+  }
+
+  if (ImGui::BeginPopupModal("Open Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const auto maps = CollectFiles("assets/maps", [](const std::filesystem::path& path) {
+      return EndsWith(path.filename().string(), ".json");
+    });
+    if (maps.empty()) {
+      ImGui::TextDisabled("No maps found in assets/maps/");
+    } else {
+      for (const auto& path : maps) {
+        const std::string relPath = path.generic_string();
+        if (ImGui::Selectable(relPath.c_str())) {
+          if (editor.hasUnsavedChanges) {
+            state.pendingAction = PendingAction::LoadPath;
+            state.pendingLoadPath = relPath;
+            state.showConfirmOpen = true;
+          } else {
+            out.requestLoad = true;
+            out.loadPath = relPath;
+          }
+          ImGui::CloseCurrentPopup();
+        }
+      }
+    }
+    if (ImGui::Button("Cancel")) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void DrawRecoverAutosaveModal(EditorUIState& state, EditorUIOutput& out, const EditorState& editor) {
+  if (state.showRecoverAutosave) {
+    ImGui::OpenPopup("Recover Autosave");
+    state.showRecoverAutosave = false;
+  }
+
+  if (ImGui::BeginPopupModal("Recover Autosave", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const auto autosaves = CollectFiles("assets/autosave", [](const std::filesystem::path& path) {
+      const std::string name = path.filename().string();
+      return EndsWith(name, ".autosave.json") || name == "autosave.json";
+    });
+    if (autosaves.empty()) {
+      ImGui::TextDisabled("No autosave files found.");
+    } else {
+      for (const auto& path : autosaves) {
+        const std::string relPath = path.generic_string();
+        const std::string stamp = FormatTimestamp(std::filesystem::last_write_time(path));
+        ImGui::PushID(relPath.c_str());
+        if (ImGui::Selectable(relPath.c_str())) {
+          if (editor.hasUnsavedChanges) {
+            state.pendingAction = PendingAction::LoadPath;
+            state.pendingLoadPath = relPath;
+            state.showConfirmOpen = true;
+          } else {
+            out.requestLoad = true;
+            out.loadPath = relPath;
+          }
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", stamp.c_str());
+        ImGui::PopID();
+      }
+    }
+    if (ImGui::Button("Cancel")) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void DrawStampModal(EditorUIState& state, EditorUIOutput& out) {
+  if (state.openStampModal) {
+    ImGui::OpenPopup("Create Stamp");
+    state.openStampModal = false;
+  }
+
+  if (ImGui::BeginPopupModal("Create Stamp", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::InputText("Name", state.stampNameBuffer, sizeof(state.stampNameBuffer));
+    if (ImGui::Button("Create")) {
+      out.requestCreateStamp = true;
+      out.stampName = state.stampNameBuffer;
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -1478,9 +1860,9 @@ void DrawSaveAsModal(EditorUIState& state, EditorUIOutput& out) {
 }
 
 void DrawAboutModal(EditorUIState& state) {
-  if (state.openAboutModal) {
+  if (state.showAbout) {
     ImGui::OpenPopup("About");
-    state.openAboutModal = false;
+    state.showAbout = false;
   }
 
   if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1493,13 +1875,14 @@ void DrawAboutModal(EditorUIState& state) {
 }
 
 void DrawUnsavedModal(EditorUIState& state, EditorUIOutput& out) {
-  if (state.openUnsavedModal) {
+  if (state.showConfirmOpen || state.showConfirmQuit) {
     ImGui::OpenPopup("Unsaved Changes");
-    state.openUnsavedModal = false;
+    state.showConfirmOpen = false;
+    state.showConfirmQuit = false;
   }
 
   if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    if (state.pendingQuit) {
+    if (state.pendingAction == PendingAction::Quit) {
       ImGui::TextWrapped("You have unsaved changes. Save before quitting?");
     } else {
       ImGui::TextWrapped("You have unsaved changes. Save before opening?");
@@ -1515,6 +1898,8 @@ void DrawUnsavedModal(EditorUIState& state, EditorUIOutput& out) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) {
+      state.pendingAction = PendingAction::None;
+      state.pendingLoadPath.clear();
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -1531,7 +1916,7 @@ void DrawDeleteModal(EditorUIState& state) {
     ImGui::TextWrapped("Delete asset?\n%s", state.pendingDeletePath.c_str());
     if (ImGui::Button("Delete")) {
       std::filesystem::path target = state.pendingDeletePath;
-      if (IsPathUnderAssets(target) && std::filesystem::is_regular_file(target)) {
+      if (IsPathUnderMaps(target) && std::filesystem::is_regular_file(target)) {
         std::error_code ec;
         std::filesystem::remove(target, ec);
         if (ec) {
@@ -1540,7 +1925,7 @@ void DrawDeleteModal(EditorUIState& state) {
           Log::Info("Deleted: " + target.generic_string());
         }
       } else {
-        Log::Warn("Refused to delete asset outside assets/.");
+        Log::Warn("Refused to delete map outside assets/maps/.");
       }
       state.pendingDeletePath.clear();
       ImGui::CloseCurrentPopup();
@@ -1554,43 +1939,79 @@ void DrawDeleteModal(EditorUIState& state) {
   }
 }
 
+void DrawLayerDeleteModal(EditorUIState& state, EditorState& editor) {
+  if (state.openLayerDeleteModal) {
+    ImGui::OpenPopup("Delete Layer");
+    state.openLayerDeleteModal = false;
+  }
+
+  if (ImGui::BeginPopupModal("Delete Layer", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextUnformatted("Delete selected layer?");
+    if (ImGui::Button("Delete")) {
+      const int index = state.pendingLayerDeleteIndex;
+      if (index >= 0 && index < static_cast<int>(editor.layers.size())) {
+        if (editor.layers.size() > 1) {
+          editor.layers.erase(editor.layers.begin() + index);
+          if (editor.activeLayer >= static_cast<int>(editor.layers.size())) {
+            editor.activeLayer = static_cast<int>(editor.layers.size()) - 1;
+          }
+          editor.selectedLayer = editor.activeLayer;
+        } else {
+          std::fill(editor.layers[0].tiles.begin(), editor.layers[0].tiles.end(), 0);
+        }
+      }
+      state.pendingLayerDeleteIndex = -1;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+      state.pendingLayerDeleteIndex = -1;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void BuildDefaultDockLayout(ImGuiViewport* viewport, ImGuiDockNodeFlags dockFlags) {
+  ImGuiID dockspaceId = viewport->ID;
+  ImGui::DockBuilderRemoveNode(dockspaceId);
+  ImGui::DockBuilderAddNode(dockspaceId, dockFlags | ImGuiDockNodeFlags_DockSpace);
+  ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->Size);
+
+  ImGuiID dockMain = dockspaceId;
+  ImGuiID dockToolbar = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Up, 0.08f, nullptr, &dockMain);
+  ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.18f, nullptr, &dockMain);
+  ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.22f, nullptr, &dockMain);
+  ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.26f, nullptr, &dockMain);
+
+  ImGui::DockBuilderDockWindow("Toolbar", dockToolbar);
+  ImGui::DockBuilderDockWindow("Scene View", dockMain);
+  ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
+  ImGui::DockBuilderDockWindow("Tile Palette", dockLeft);
+  ImGui::DockBuilderDockWindow("Inspector", dockRight);
+  ImGui::DockBuilderDockWindow("Settings", dockRight);
+  ImGui::DockBuilderDockWindow("Project", dockBottom);
+  ImGui::DockBuilderDockWindow("Console", dockBottom);
+
+  ImGui::DockBuilderFinish(dockspaceId);
+}
+
 void BuildDockSpace(EditorUIState& state) {
 #ifdef IMGUI_HAS_DOCK
   ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGuiDockNodeFlags dockFlags = ImGuiDockNodeFlags_PassthruCentralNode;
   ImGui::DockSpaceOverViewport(0, viewport, dockFlags);
 
-  if (state.dockInitialized) {
-    return;
-  }
-
   const char* iniPath = ImGui::GetIO().IniFilename;
   const bool hasIni = iniPath && std::filesystem::exists(iniPath);
-  if (!hasIni) {
-    ImGuiID dockspaceId = viewport->ID;
-    ImGui::DockBuilderRemoveNode(dockspaceId);
-    ImGui::DockBuilderAddNode(dockspaceId, dockFlags | ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->Size);
-
-    ImGuiID dockMain = dockspaceId;
-    ImGuiID dockToolbar = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Up, 0.08f, nullptr, &dockMain);
-    ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.18f, nullptr, &dockMain);
-    ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.22f, nullptr, &dockMain);
-    ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.26f, nullptr, &dockMain);
-
-    ImGui::DockBuilderDockWindow("Toolbar", dockToolbar);
-    ImGui::DockBuilderDockWindow("Scene View", dockMain);
-    ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
-    ImGui::DockBuilderDockWindow("Tile Palette", dockLeft);
-    ImGui::DockBuilderDockWindow("Inspector", dockRight);
-    ImGui::DockBuilderDockWindow("Settings", dockRight);
-    ImGui::DockBuilderDockWindow("Project", dockBottom);
-    ImGui::DockBuilderDockWindow("Console", dockBottom);
-
-    ImGui::DockBuilderFinish(dockspaceId);
+  if (state.requestResetLayout || (!state.dockInitialized && !hasIni)) {
+    BuildDefaultDockLayout(viewport, dockFlags);
+    state.requestResetLayout = false;
   }
 
-  state.dockInitialized = true;
+  if (!state.dockInitialized) {
+    state.dockInitialized = true;
+  }
 #else
   (void)state;
 #endif
@@ -1646,6 +2067,12 @@ void LoadEditorConfig(EditorUIState& state) {
   }
   ParseFloatAfterKey(text, "autosaveInterval", state.autosaveInterval);
   ParseStringAfterKey(text, "autosavePath", state.autosavePath);
+  ParseFloatAfterKey(text, "gridCellSize", state.gridCellSize);
+  ParseIntAfterKey(text, "gridMajorStep", state.gridMajorStep);
+  ParseFloatAfterKey(text, "gridColorR", state.gridColor.r);
+  ParseFloatAfterKey(text, "gridColorG", state.gridColor.g);
+  ParseFloatAfterKey(text, "gridColorB", state.gridColor.b);
+  ParseFloatAfterKey(text, "gridAlpha", state.gridAlpha);
   int invertZoom = state.invertZoom ? 1 : 0;
   if (ParseIntAfterKey(text, "invertZoom", invertZoom)) {
     state.invertZoom = invertZoom != 0;
@@ -1666,6 +2093,15 @@ void LoadEditorConfig(EditorUIState& state) {
   }
   if (state.autosavePath.empty()) {
     state.autosavePath = "assets/autosave/autosave.json";
+  }
+  if (state.gridMajorStep < 1) {
+    state.gridMajorStep = 1;
+  }
+  if (state.gridAlpha < 0.05f) {
+    state.gridAlpha = 0.05f;
+  }
+  if (state.gridAlpha > 1.0f) {
+    state.gridAlpha = 1.0f;
   }
   if (state.panSpeed <= 0.0f) {
     state.panSpeed = 1.0f;
@@ -1713,12 +2149,21 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
   }
 
   BuildDockSpace(state);
-  DrawMenuBar(state, out);
+  DrawMenuBar(state, out, editor);
   DrawToolbar(state, out, editor, atlasTexture);
-  DrawSceneView(state, out, sceneFramebuffer, cameraZoom);
+  if (state.showScene) {
+    DrawSceneView(state, out, sceneFramebuffer, cameraZoom);
+  } else {
+    state.sceneHovered = false;
+    state.sceneRect = {};
+    out.sceneHovered = false;
+    out.sceneActive = false;
+    out.sceneRectMin = {};
+    out.sceneRectMax = {};
+  }
 
   if (state.showHierarchy) {
-    DrawHierarchy(editor);
+    DrawHierarchy(state, editor);
   }
   if (state.showInspector) {
     DrawInspector(state, out, editor);
@@ -1739,11 +2184,16 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
   DrawStatusBar(state, editor, cameraZoom, fps);
 
   DrawSaveAsModal(state, out);
+  DrawOverwriteModal(state, out);
+  DrawOpenModal(state, out, editor);
+  DrawRecoverAutosaveModal(state, out, editor);
+  DrawStampModal(state, out);
   DrawAboutModal(state);
   DrawPreferencesModal(state);
   DrawResizeModal(state, out);
   DrawUnsavedModal(state, out);
   DrawDeleteModal(state);
+  DrawLayerDeleteModal(state, editor);
 
   return out;
 }
@@ -1751,10 +2201,23 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
 void DrawSceneOverlay(const EditorUIState& state,
                       const EditorState& editor,
                       const Texture& atlasTexture,
-                      float zoom) {
+                      const Vec2& cameraPos,
+                      float zoom,
+                      float mapWorldWidth,
+                      float mapWorldHeight,
+                      float viewLeft,
+                      float viewRight,
+                      float viewBottom,
+                      float viewTop) {
   if (state.sceneRect.width <= 1.0f || state.sceneRect.height <= 1.0f) {
     return;
   }
+
+  const ImVec2 clipMin(state.sceneRect.x, state.sceneRect.y);
+  const ImVec2 clipMax(state.sceneRect.x + state.sceneRect.width, state.sceneRect.y + state.sceneRect.height);
+  auto ClampToRect = [](float value, float minVal, float maxVal) {
+    return std::max(minVal, std::min(value, maxVal));
+  };
 
   const char* toolLabel = ToolLabel(editor.currentTool);
   const char* gridLabel = state.showGrid ? "On" : "Off";
@@ -1767,33 +2230,49 @@ void DrawSceneOverlay(const EditorUIState& state,
   } else {
     std::snprintf(hoverBuffer, sizeof(hoverBuffer), "(--, --)");
   }
+  char worldBuffer[48];
+  if (editor.selection.hasHover) {
+    std::snprintf(worldBuffer, sizeof(worldBuffer), "(%.1f, %.1f)", editor.mouseWorld.x, editor.mouseWorld.y);
+  } else {
+    std::snprintf(worldBuffer, sizeof(worldBuffer), "(--, --)");
+  }
+  char camBuffer[48];
+  std::snprintf(camBuffer, sizeof(camBuffer), "(%.1f, %.1f)", cameraPos.x, cameraPos.y);
 
   std::string line1 = std::string("Tool: ") + toolLabel;
   std::string line2 = std::string("Grid: ") + gridLabel;
   std::string line3 = std::string("Zoom: ") + zoomBuffer;
   std::string line4 = std::string("Hover: ") + hoverBuffer;
+  std::string line5 = std::string("World: ") + worldBuffer;
+  std::string line6 = std::string("Camera: ") + camBuffer;
 
   const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
   const ImVec2 size1 = ImGui::CalcTextSize(line1.c_str());
   const ImVec2 size2 = ImGui::CalcTextSize(line2.c_str());
   const ImVec2 size3 = ImGui::CalcTextSize(line3.c_str());
   const ImVec2 size4 = ImGui::CalcTextSize(line4.c_str());
-  const float textWidth = std::max(std::max(size1.x, size2.x), std::max(size3.x, size4.x));
+  const ImVec2 size5 = ImGui::CalcTextSize(line5.c_str());
+  const ImVec2 size6 = ImGui::CalcTextSize(line6.c_str());
+  float textWidth = size1.x;
+  textWidth = std::max(textWidth, size2.x);
+  textWidth = std::max(textWidth, size3.x);
+  textWidth = std::max(textWidth, size4.x);
+  textWidth = std::max(textWidth, size5.x);
+  textWidth = std::max(textWidth, size6.x);
 
   const float padding = 6.0f;
   const float previewSize = 24.0f;
   const float previewPadding = 6.0f;
   const float panelWidth = textWidth + padding * 2.0f + previewSize + previewPadding;
-  const float panelHeight = padding * 2.0f + lineHeight * 4.0f;
+  const float panelHeight = padding * 2.0f + lineHeight * 6.0f;
 
   ImDrawList* drawList = ImGui::GetForegroundDrawList();
-  const ImVec2 panelPos(state.sceneRect.x + 8.0f, state.sceneRect.y + 8.0f);
+  ImVec2 panelPos(state.sceneRect.x + 8.0f, state.sceneRect.y + 8.0f);
+  panelPos.x = ClampToRect(panelPos.x, clipMin.x, std::max(clipMin.x, clipMax.x - panelWidth));
+  panelPos.y = ClampToRect(panelPos.y, clipMin.y, std::max(clipMin.y, clipMax.y - panelHeight));
   const ImVec2 panelMax(panelPos.x + panelWidth, panelPos.y + panelHeight);
 
-  drawList->PushClipRect(ImVec2(state.sceneRect.x, state.sceneRect.y),
-                         ImVec2(state.sceneRect.x + state.sceneRect.width,
-                                state.sceneRect.y + state.sceneRect.height),
-                         true);
+  drawList->PushClipRect(clipMin, clipMax, true);
   drawList->AddRectFilled(panelPos, panelMax, IM_COL32(0, 0, 0, 150), 4.0f);
 
   ImVec2 textPos(panelPos.x + padding, panelPos.y + padding);
@@ -1804,6 +2283,10 @@ void DrawSceneOverlay(const EditorUIState& state,
   drawList->AddText(textPos, IM_COL32(255, 255, 255, 220), line3.c_str());
   textPos.y += lineHeight;
   drawList->AddText(textPos, IM_COL32(255, 255, 255, 220), line4.c_str());
+  textPos.y += lineHeight;
+  drawList->AddText(textPos, IM_COL32(255, 255, 255, 220), line5.c_str());
+  textPos.y += lineHeight;
+  drawList->AddText(textPos, IM_COL32(255, 255, 255, 220), line6.c_str());
 
   const ImVec2 previewMin(panelPos.x + padding + textWidth + previewPadding, panelPos.y + padding);
   const ImVec2 previewMax(previewMin.x + previewSize, previewMin.y + previewSize);
@@ -1825,6 +2308,38 @@ void DrawSceneOverlay(const EditorUIState& state,
     }
   }
   drawList->AddRect(previewMin, previewMax, IM_COL32(255, 255, 255, 120));
+
+  if (mapWorldWidth > 0.0f && mapWorldHeight > 0.0f) {
+    const float miniWidth = 160.0f;
+    const float miniHeight = 120.0f;
+    const float margin = 8.0f;
+    ImVec2 miniPos(state.sceneRect.x + state.sceneRect.width - miniWidth - margin, state.sceneRect.y + margin);
+    miniPos.x = ClampToRect(miniPos.x, clipMin.x, std::max(clipMin.x, clipMax.x - miniWidth));
+    miniPos.y = ClampToRect(miniPos.y, clipMin.y, std::max(clipMin.y, clipMax.y - miniHeight));
+    const ImVec2 miniMax(miniPos.x + miniWidth, miniPos.y + miniHeight);
+    drawList->AddRectFilled(miniPos, miniMax, IM_COL32(0, 0, 0, 140), 4.0f);
+    drawList->AddRect(miniPos, miniMax, IM_COL32(255, 255, 255, 80), 4.0f);
+
+    const float scale = std::min(miniWidth / mapWorldWidth, miniHeight / mapWorldHeight);
+    const float mapDrawW = mapWorldWidth * scale;
+    const float mapDrawH = mapWorldHeight * scale;
+    const float mapMinX = miniPos.x + (miniWidth - mapDrawW) * 0.5f;
+    const float mapMinY = miniPos.y + (miniHeight - mapDrawH) * 0.5f;
+    const float mapMaxX = mapMinX + mapDrawW;
+    const float mapMaxY = mapMinY + mapDrawH;
+
+    drawList->AddRect(ImVec2(mapMinX, mapMinY), ImVec2(mapMaxX, mapMaxY), IM_COL32(200, 200, 200, 160));
+
+    float viewX0 = mapMinX + viewLeft * scale;
+    float viewX1 = mapMinX + viewRight * scale;
+    float viewY0 = mapMaxY - viewTop * scale;
+    float viewY1 = mapMaxY - viewBottom * scale;
+    viewX0 = ClampToRect(viewX0, mapMinX, mapMaxX);
+    viewX1 = ClampToRect(viewX1, mapMinX, mapMaxX);
+    viewY0 = ClampToRect(viewY0, mapMinY, mapMaxY);
+    viewY1 = ClampToRect(viewY1, mapMinY, mapMaxY);
+    drawList->AddRect(ImVec2(viewX0, viewY0), ImVec2(viewX1, viewY1), IM_COL32(100, 200, 255, 200));
+  }
   drawList->PopClipRect();
 }
 

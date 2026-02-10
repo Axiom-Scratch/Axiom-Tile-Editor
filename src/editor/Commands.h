@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <vector>
 
 namespace te {
@@ -13,6 +14,7 @@ struct CellChange {
 };
 
 struct PaintCommand {
+  int layerIndex = 0;
   std::vector<CellChange> changes;
 };
 
@@ -22,8 +24,10 @@ public:
   bool CanUndo() const { return !m_undo.empty(); }
   bool CanRedo() const { return !m_redo.empty(); }
 
-  bool Undo(TileMap& map);
-  bool Redo(TileMap& map);
+  using ApplyChangeFn = std::function<void(int layerIndex, int x, int y, int value)>;
+
+  bool Undo(int width, const ApplyChangeFn& apply);
+  bool Redo(int width, const ApplyChangeFn& apply);
   void Clear();
 
 private:
