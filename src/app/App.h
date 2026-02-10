@@ -42,6 +42,8 @@ private:
   Vec2i m_framebuffer{};
   std::string m_windowTitle;
   bool m_lastDirty = false;
+  float m_zoomTarget = 1.0f;
+  float m_zoomVelocity = 0.0f;
 };
 
 } // namespace te

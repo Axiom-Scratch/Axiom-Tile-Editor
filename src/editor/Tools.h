@@ -23,6 +23,9 @@ enum class Tool {
   Erase,
   Rect,
   Fill,
+  Line,
+  Select,
+  Move,
   Pan
 };
 
@@ -65,11 +68,20 @@ struct EditorState {
   Vec2i rectStart{};
   Vec2i rectEnd{};
   bool rectErase = false;
+  bool lineActive = false;
+  Vec2i lineStart{};
+  Vec2i lineEnd{};
+  bool moveActive = false;
+  Vec2i moveStart{};
+  Vec2i moveEnd{};
+
+  Vec4 sceneBgColor{0.18f, 0.18f, 0.20f, 1.0f};
 };
 
 void InitEditor(EditorState& state, int width, int height, int tileSize);
 void UpdateEditor(EditorState& state, const EditorInput& input);
 void EndStroke(EditorState& state);
+void BuildLineCells(const Vec2i& a, const Vec2i& b, std::vector<Vec2i>& out);
 
 bool SaveTileMap(const EditorState& state, const std::string& path);
 bool LoadTileMap(EditorState& state, const std::string& path, std::string* errorOut = nullptr);

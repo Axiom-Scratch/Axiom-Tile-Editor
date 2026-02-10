@@ -37,6 +37,10 @@ void Log::Error(const std::string& message) {
   PushLine(line);
 }
 
+void Log::Clear() {
+  s_lines.clear();
+}
+
 const std::vector<std::string>& Log::GetLines() {
   return s_lines;
 }

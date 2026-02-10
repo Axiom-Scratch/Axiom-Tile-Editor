@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace te {
 
@@ -141,6 +142,8 @@ bool App::Init() {
   const float mapWorldHeight = static_cast<float>(AppConfig::MapHeight * AppConfig::TileSize);
   m_camera.SetPosition({mapWorldWidth * 0.5f, mapWorldHeight * 0.5f});
   m_camera.SetZoom(1.0f);
+  m_zoomTarget = m_camera.GetZoom();
+  m_zoomVelocity = 0.0f;
 
   return true;
 }
@@ -173,7 +176,7 @@ void App::Run() {
     const bool imguiActive = ImGui::GetCurrentContext() != nullptr;
 
     ui::EditorUIOutput uiOutput =
-        ui::DrawEditorUI(m_uiState, m_editor, m_log, m_atlasTexture, m_sceneFramebuffer, m_camera.GetZoom());
+        ui::DrawEditorUI(m_uiState, m_editor, m_log, m_atlasTexture, m_sceneFramebuffer, m_camera.GetZoom(), fps);
     if (m_uiState.vsyncDirty) {
       m_window.SetVsync(m_uiState.vsyncEnabled);
       m_uiState.vsyncDirty = false;
@@ -281,6 +284,15 @@ void App::Run() {
       const float mapWorldHeight = static_cast<float>(m_editor.tileMap.GetHeight() * m_editor.tileMap.GetTileSize());
       m_camera.SetPosition({mapWorldWidth * 0.5f, mapWorldHeight * 0.5f});
       m_camera.SetZoom(1.0f);
+      m_zoomTarget = m_camera.GetZoom();
+      m_zoomVelocity = 0.0f;
+    }
+
+    if (uiOutput.requestSetZoom) {
+      float zoom = std::clamp(uiOutput.zoomValue, 0.2f, 4.0f);
+      m_camera.SetZoom(zoom);
+      m_zoomTarget = zoom;
+      m_zoomVelocity = 0.0f;
     }
 
     if (uiOutput.requestResizeMap) {
@@ -310,7 +322,8 @@ void App::Run() {
     if (m_editor.hasUnsavedChanges && m_uiState.autosaveEnabled) {
       m_uiState.autosaveTimer += dt;
       if (m_uiState.autosaveTimer >= m_uiState.autosaveInterval) {
-        const std::string autosavePath = currentPath.empty() ? "assets/maps/autosave.json" : currentPath + ".autosave";
+        const std::string autosavePath =
+            m_uiState.autosavePath.empty() ? "assets/autosave/autosave.json" : m_uiState.autosavePath;
         if (SaveTileMap(m_editor, autosavePath)) {
           Log::Info("Autosaved tilemap to " + autosavePath);
         } else {
@@ -350,13 +363,47 @@ void App::Run() {
       if (m_actions.Get(Action::MoveRight).down) camPos.x += moveSpeed * dt;
     }
 
-    if (allowMouse) {
-      const float scroll = m_actions.Get(Action::ZoomIn).value - m_actions.Get(Action::ZoomOut).value;
-      if (scroll != 0.0f) {
-        float zoom = m_camera.GetZoom();
-        zoom *= 1.0f + scroll * 0.1f;
-        zoom = std::clamp(zoom, 0.2f, 4.0f);
-        m_camera.SetZoom(zoom);
+    m_camera.SetPosition(camPos);
+    const bool sceneWidgetActive = io.WantCaptureMouse && ImGui::IsAnyItemActive();
+    const bool allowZoom = sceneHovered && hasScene && !sceneWidgetActive;
+    float scroll = m_actions.Get(Action::ZoomIn).value - m_actions.Get(Action::ZoomOut).value;
+    if (m_uiState.invertZoom) {
+      scroll = -scroll;
+    }
+    constexpr float kMinZoom = 0.1f;
+    constexpr float kMaxZoom = 8.0f;
+    if (allowZoom && scroll != 0.0f) {
+      const float zoomFactor = 1.0f + scroll * 0.1f;
+      m_zoomTarget = std::clamp(m_zoomTarget * zoomFactor, kMinZoom, kMaxZoom);
+    }
+
+    const float currentZoom = m_camera.GetZoom();
+    const float diff = m_zoomTarget - currentZoom;
+    if (std::abs(diff) > 0.0001f) {
+      m_zoomVelocity += diff * 12.0f * dt;
+      m_zoomVelocity *= std::pow(0.001f, dt);
+      float nextZoom = std::clamp(currentZoom + m_zoomVelocity, kMinZoom, kMaxZoom);
+
+      if (sceneHovered && hasScene) {
+        ImVec2 mousePos = ImGui::GetMousePos();
+        const Vec2 localPos{mousePos.x - sceneRectMin.x, mousePos.y - sceneRectMin.y};
+        Vec2 uv{0.0f, 0.0f};
+        if (sceneWidth > 0.0f && sceneHeight > 0.0f) {
+          uv.x = localPos.x / sceneWidth;
+          uv.y = localPos.y / sceneHeight;
+        }
+        uv.x = std::clamp(uv.x, 0.0f, 1.0f);
+        uv.y = std::clamp(uv.y, 0.0f, 1.0f);
+        const Vec2 localFb{uv.x * static_cast<float>(sceneViewport.x),
+                           uv.y * static_cast<float>(sceneViewport.y)};
+
+        const Vec2 worldBefore = m_camera.ScreenToWorld(localFb, sceneViewport);
+        m_camera.SetZoom(nextZoom);
+        const Vec2 worldAfter = m_camera.ScreenToWorld(localFb, sceneViewport);
+        camPos.x += worldBefore.x - worldAfter.x;
+        camPos.y += worldBefore.y - worldAfter.y;
+      } else {
+        m_camera.SetZoom(nextZoom);
       }
     }
 
@@ -366,8 +413,8 @@ void App::Run() {
       const ActionState& paintAction = m_actions.Get(Action::Paint);
       if (panAction.down || (panToolActive && paintAction.down)) {
         Vec2 delta = m_input.GetMouseDelta();
-        delta.x *= sceneScaleX;
-        delta.y *= sceneScaleY;
+        delta.x *= sceneScaleX * m_uiState.panSpeed;
+        delta.y *= sceneScaleY * m_uiState.panSpeed;
         camPos.x -= delta.x / m_camera.GetZoom();
         camPos.y += delta.y / m_camera.GetZoom();
       }
@@ -428,7 +475,8 @@ void App::Run() {
     if (hasScene) {
       m_sceneFramebuffer.Bind();
       glViewport(0, 0, sceneViewport.x, sceneViewport.y);
-      glClearColor(0.18f, 0.18f, 0.20f, 1.0f);
+      glClearColor(m_editor.sceneBgColor.r, m_editor.sceneBgColor.g, m_editor.sceneBgColor.b,
+                   m_editor.sceneBgColor.a);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
       m_renderer.BeginFrame(m_camera.GetViewProjection(sceneViewport));
@@ -557,6 +605,30 @@ void App::Run() {
         m_renderer.DrawLine({x0, y1}, {x0, y0}, borderColor);
       }
 
+      if (m_editor.lineActive) {
+        std::vector<Vec2i> lineCells;
+        BuildLineCells(m_editor.lineStart, m_editor.lineEnd, lineCells);
+        const Vec4 fillColor{0.95f, 0.90f, 0.35f, 0.18f};
+        const Vec4 borderColor{0.95f, 0.90f, 0.35f, 0.9f};
+        for (const Vec2i& cell : lineCells) {
+          if (!m_editor.tileMap.IsInBounds(cell.x, cell.y)) {
+            continue;
+          }
+          if (cell.x < minX || cell.x > maxX || cell.y < minY || cell.y > maxY) {
+            continue;
+          }
+          const float x0 = static_cast<float>(cell.x * tileSize);
+          const float y0 = static_cast<float>(cell.y * tileSize);
+          const float x1 = x0 + static_cast<float>(tileSize);
+          const float y1 = y0 + static_cast<float>(tileSize);
+          m_renderer.DrawQuad({x0, y0}, {static_cast<float>(tileSize), static_cast<float>(tileSize)}, fillColor);
+          m_renderer.DrawLine({x0, y0}, {x1, y0}, borderColor);
+          m_renderer.DrawLine({x1, y0}, {x1, y1}, borderColor);
+          m_renderer.DrawLine({x1, y1}, {x0, y1}, borderColor);
+          m_renderer.DrawLine({x0, y1}, {x0, y0}, borderColor);
+        }
+      }
+
       if (m_editor.selection.hasHover) {
         const int x = m_editor.selection.hoverCell.x;
         const int y = m_editor.selection.hoverCell.y;
@@ -577,15 +649,7 @@ void App::Run() {
       glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
     }
 
-    const Vec2 rawMousePos = m_input.GetMousePos();
-    const Vec2 rawMouseDelta = m_input.GetMouseDelta();
-    const Vec2 rawScrollDelta = m_input.GetScrollDelta();
-    const bool lmbDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_LEFT);
-    const bool rmbDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_RIGHT);
-    const bool mmbDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_MIDDLE);
-    ui::DrawSceneOverlay(m_uiState, fps, m_camera.GetZoom(), m_editor.currentTool, rawMousePos, rawMouseDelta,
-                         rawScrollDelta, lmbDown, rmbDown, mmbDown, m_editor.selection.hasHover,
-                         m_editor.selection.hoverCell, m_editor.currentTileIndex);
+    ui::DrawSceneOverlay(m_uiState, m_editor, m_atlasTexture, m_camera.GetZoom());
     if (uiOutput.requestUndo) {
       handleUndo();
     }

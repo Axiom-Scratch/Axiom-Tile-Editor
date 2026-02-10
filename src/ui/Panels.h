@@ -58,8 +58,11 @@ struct EditorUIState {
   bool openAboutModal = false;
   bool openResizeModal = false;
   bool openUnsavedModal = false;
+  bool openPreferencesModal = false;
+  bool openDeleteModal = false;
 
   std::string pendingLoadPath;
+  std::string pendingDeletePath;
   bool pendingQuit = false;
 
   SceneViewRect sceneRect{};
@@ -75,6 +78,18 @@ struct EditorUIState {
   bool autosaveEnabled = false;
   float autosaveInterval = 60.0f;
   float autosaveTimer = 0.0f;
+  std::string autosavePath;
+  char autosavePathBuffer[256]{};
+
+  bool invertZoom = false;
+  float panSpeed = 1.0f;
+
+  char projectFilter[128]{};
+  int projectFilterMode = 0;
+
+  bool consoleCollapse = false;
+  int consoleSelectedIndex = -1;
+  std::string consoleSelectedMessage;
 };
 
 struct EditorUIOutput {
@@ -89,12 +104,14 @@ struct EditorUIOutput {
   bool requestResizeMap = false;
   bool confirmSave = false;
   bool confirmDiscard = false;
+  bool requestSetZoom = false;
 
   std::string loadPath;
   std::string saveAsPath;
   std::string atlasPath;
   int resizeWidth = 0;
   int resizeHeight = 0;
+  float zoomValue = 1.0f;
 
   Vec2 sceneRectMin{};
   Vec2 sceneRectMax{};
@@ -112,20 +129,12 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
                             Log& log,
                             const Texture& atlasTexture,
                             Framebuffer& sceneFramebuffer,
-                            float cameraZoom);
+                            float cameraZoom,
+                            float fps);
 
 void DrawSceneOverlay(const EditorUIState& state,
-                      float fps,
-                      float zoom,
-                      Tool currentTool,
-                      Vec2 mousePos,
-                      Vec2 mouseDelta,
-                      Vec2 scrollDelta,
-                      bool lmbDown,
-                      bool rmbDown,
-                      bool mmbDown,
-                      bool hasHover,
-                      Vec2i hoverCell,
-                      int tileIndex);
+                      const EditorState& editor,
+                      const Texture& atlasTexture,
+                      float zoom);
 
 } // namespace te::ui

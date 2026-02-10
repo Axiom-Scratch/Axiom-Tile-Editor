@@ -1,11 +1,12 @@
 {
-  "current": "assets/maps/map.json",
+  "current": "assets/maps/NewMap.json",
   "recent": [
+    "assets/maps/NewMap.json",
     "assets/maps/map.json",
     "hi"
   ],
-  "windowWidth": 1920,
-  "windowHeight": 995,
+  "windowWidth": 1280,
+  "windowHeight": 720,
   "atlasPath": "assets/textures/atlas.png",
   "atlasTileW": 32,
   "atlasTileH": 32,
@@ -19,5 +20,8 @@
   "themeRounding": 4,
   "themeBoostContrast": 0,
   "autosaveEnabled": 1,
-  "autosaveInterval": 60
+  "autosaveInterval": 60,
+  "autosavePath": "assets/autosave/autosave.json",
+  "invertZoom": 0,
+  "panSpeed": 1
 }
