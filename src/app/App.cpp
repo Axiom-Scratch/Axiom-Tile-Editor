@@ -175,7 +175,9 @@ void App::Run() {
     }
 
     const bool blockKeys = imguiActive && io.WantCaptureKeyboard;
-    const bool allowMouse = uiOutput.sceneHovered && !io.WantCaptureMouse;
+    const bool sceneHovered = uiOutput.sceneHovered;
+    const bool imguiCapturingMouse = io.WantCaptureMouse && !sceneHovered;
+    const bool allowMouse = sceneHovered && !imguiCapturingMouse;
     const bool allowKeyboard = !blockKeys;
 
     const bool ctrlDown = m_input.IsKeyDown(GLFW_KEY_LEFT_CONTROL) || m_input.IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
@@ -356,9 +358,10 @@ void App::Run() {
 
     m_camera.SetPosition(camPos);
 
-    Vec2 mouseWorld{-100000.0f, -100000.0f};
-    if (hasScene && allowMouse) {
-      const ImVec2 mousePos = io.MousePos;
+    const bool sceneInputActive = allowMouse && hasScene && sceneHovered;
+    Vec2 mouseWorld{-1.0f, -1.0f};
+    if (sceneInputActive) {
+      const ImVec2 mousePos = ImGui::GetMousePos();
       const Vec2 localPos{mousePos.x - sceneRectMin.x, mousePos.y - sceneRectMin.y};
       Vec2 uv{0.0f, 0.0f};
       if (sceneWidth > 0.0f && sceneHeight > 0.0f) {
@@ -374,14 +377,12 @@ void App::Run() {
 
     EditorInput editorInput{};
     editorInput.mouseWorld = mouseWorld;
-    const ActionState& leftButton = m_actions.Get(Action::Paint);
-    const ActionState& rightButton = m_actions.Get(Action::Erase);
-    bool leftDown = allowMouse && leftButton.down;
-    bool rightDown = allowMouse && rightButton.down;
-    bool leftPressed = allowMouse && leftButton.pressed;
-    bool rightPressed = allowMouse && rightButton.pressed;
-    bool leftReleased = allowMouse && leftButton.released;
-    bool rightReleased = allowMouse && rightButton.released;
+    bool leftDown = sceneInputActive && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    bool leftPressed = sceneInputActive && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    bool leftReleased = sceneInputActive && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+    bool rightDown = sceneInputActive && ImGui::IsMouseDown(ImGuiMouseButton_Right);
+    bool rightPressed = sceneInputActive && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+    bool rightReleased = sceneInputActive && ImGui::IsMouseReleased(ImGuiMouseButton_Right);
 
     if (activeTool == Tool::Pan) {
       leftDown = false;
