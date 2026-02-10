@@ -175,10 +175,7 @@ void App::Run() {
     }
 
     const bool blockKeys = imguiActive && io.WantCaptureKeyboard;
-    const bool popupOpen = imguiActive && ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
-    const bool wantsMouse = imguiActive && io.WantCaptureMouse;
-    const bool blockMouse = popupOpen || wantsMouse;
-    const bool allowMouse = m_uiState.sceneHovered && !blockMouse;
+    const bool allowMouse = uiOutput.sceneHovered && !io.WantCaptureMouse;
     const bool allowKeyboard = !blockKeys;
 
     const bool ctrlDown = m_input.IsKeyDown(GLFW_KEY_LEFT_CONTROL) || m_input.IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
@@ -198,13 +195,16 @@ void App::Run() {
     const Tool activeTool = panHold ? Tool::Pan : m_editor.currentTool;
 
     Vec2i sceneViewport{m_sceneFramebuffer.GetWidth(), m_sceneFramebuffer.GetHeight()};
-    bool hasScene = m_uiState.sceneRect.width > 1.0f && m_uiState.sceneRect.height > 1.0f &&
-                    sceneViewport.x > 0 && sceneViewport.y > 0;
+    const Vec2 sceneRectMin = uiOutput.sceneRectMin;
+    const Vec2 sceneRectMax = uiOutput.sceneRectMax;
+    const float sceneWidth = sceneRectMax.x - sceneRectMin.x;
+    const float sceneHeight = sceneRectMax.y - sceneRectMin.y;
+    bool hasScene = sceneWidth > 1.0f && sceneHeight > 1.0f && sceneViewport.x > 0 && sceneViewport.y > 0;
     float sceneScaleX = 1.0f;
     float sceneScaleY = 1.0f;
     if (hasScene) {
-      sceneScaleX = static_cast<float>(sceneViewport.x) / m_uiState.sceneRect.width;
-      sceneScaleY = static_cast<float>(sceneViewport.y) / m_uiState.sceneRect.height;
+      sceneScaleX = static_cast<float>(sceneViewport.x) / sceneWidth;
+      sceneScaleY = static_cast<float>(sceneViewport.y) / sceneHeight;
     }
 
     auto handleUndo = [&]() {
@@ -358,17 +358,17 @@ void App::Run() {
 
     Vec2 mouseWorld{-100000.0f, -100000.0f};
     if (hasScene && allowMouse) {
-      const Vec2 mousePos = m_input.GetMousePos();
-      const Vec2 localPos{mousePos.x - m_uiState.sceneRect.x, mousePos.y - m_uiState.sceneRect.y};
-      Vec2 normalized{0.0f, 0.0f};
-      if (m_uiState.sceneRect.width > 0.0f && m_uiState.sceneRect.height > 0.0f) {
-        normalized.x = localPos.x / m_uiState.sceneRect.width;
-        normalized.y = localPos.y / m_uiState.sceneRect.height;
+      const ImVec2 mousePos = io.MousePos;
+      const Vec2 localPos{mousePos.x - sceneRectMin.x, mousePos.y - sceneRectMin.y};
+      Vec2 uv{0.0f, 0.0f};
+      if (sceneWidth > 0.0f && sceneHeight > 0.0f) {
+        uv.x = localPos.x / sceneWidth;
+        uv.y = localPos.y / sceneHeight;
       }
-      normalized.x = std::clamp(normalized.x, 0.0f, 1.0f);
-      normalized.y = std::clamp(normalized.y, 0.0f, 1.0f);
-      const Vec2 localFb{normalized.x * static_cast<float>(sceneViewport.x),
-                         normalized.y * static_cast<float>(sceneViewport.y)};
+      uv.x = std::clamp(uv.x, 0.0f, 1.0f);
+      uv.y = std::clamp(uv.y, 0.0f, 1.0f);
+      const Vec2 localFb{uv.x * static_cast<float>(sceneViewport.x),
+                         uv.y * static_cast<float>(sceneViewport.y)};
       mouseWorld = m_camera.ScreenToWorld(localFb, sceneViewport);
     }
 
@@ -559,7 +559,14 @@ void App::Run() {
       glViewport(0, 0, m_framebuffer.x, m_framebuffer.y);
     }
 
-    ui::DrawSceneOverlay(m_uiState, fps, m_camera.GetZoom(), m_editor.selection.hasHover,
+    const Vec2 rawMousePos = m_input.GetMousePos();
+    const Vec2 rawMouseDelta = m_input.GetMouseDelta();
+    const Vec2 rawScrollDelta = m_input.GetScrollDelta();
+    const bool lmbDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_LEFT);
+    const bool rmbDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_RIGHT);
+    const bool mmbDown = m_input.IsMouseDown(GLFW_MOUSE_BUTTON_MIDDLE);
+    ui::DrawSceneOverlay(m_uiState, fps, m_camera.GetZoom(), m_editor.currentTool, rawMousePos, rawMouseDelta,
+                         rawScrollDelta, lmbDown, rmbDown, mmbDown, m_editor.selection.hasHover,
                          m_editor.selection.hoverCell, m_editor.currentTileIndex);
     if (uiOutput.requestUndo) {
       handleUndo();

@@ -28,6 +28,14 @@ git submodule update --init --recursive
 ./scripts/run.sh debug
 ```
 
+## Offline/System Dependencies
+If you cannot use FetchContent or submodules, install GLFW + spdlog from your package manager and ensure ImGui is
+vendored in `third_party/imgui`, then run:
+```bash
+USE_SYSTEM_DEPS=1 ./scripts/build.sh clean debug
+./scripts/run.sh debug
+```
+
 ## Common Build Errors and Fixes
 - FetchContent download fails: initialize submodules or set `USE_SYSTEM_GLFW=1`.
 - Missing X11 headers or GLFW: install `libx11 libxrandr libxinerama libxcursor libxi`.

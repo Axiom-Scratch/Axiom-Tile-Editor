@@ -10,11 +10,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="debug"
 BUILD_TYPE="Debug"
 DO_CLEAN=0
+USE_SUBMODULE_DEPS_VALUE="${USE_SUBMODULE_DEPS:-1}"
+USE_SYSTEM_DEPS_VALUE="${USE_SYSTEM_DEPS:-0}"
 
 for arg in "$@"; do
   case "$arg" in
     clean)
       DO_CLEAN=1
+      ;;
+    --no-submodules)
+      USE_SUBMODULE_DEPS_VALUE=0
       ;;
     release)
       CONFIG="release"
@@ -45,9 +50,25 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
-USE_SUBMODULE_DEPS_VALUE="${USE_SUBMODULE_DEPS:-1}"
-if [[ "$USE_SUBMODULE_DEPS_VALUE" != "0" ]] && [[ ! -f "$ROOT_DIR/third_party/glfw/CMakeLists.txt" ]]; then
-  echo "Submodules missing. Run: git submodule update --init --recursive" >&2
+if [[ "$USE_SYSTEM_DEPS_VALUE" == "1" ]]; then
+  USE_SUBMODULE_DEPS_VALUE=0
+fi
+
+if [[ "$USE_SUBMODULE_DEPS_VALUE" != "0" ]]; then
+  if [[ ! -f "$ROOT_DIR/third_party/imgui/imgui.h" ]] ||
+     [[ ! -f "$ROOT_DIR/third_party/glfw/CMakeLists.txt" ]] ||
+     [[ ! -f "$ROOT_DIR/third_party/spdlog/CMakeLists.txt" ]]; then
+    echo "Submodules missing. Run: git submodule update --init --recursive" >&2
+    echo "If you just added submodules, commit .gitmodules and submodule entries." >&2
+    exit 1
+  fi
+else
+  if [[ ! -f "$ROOT_DIR/third_party/imgui/imgui.h" ]]; then
+    echo "Vendored ImGui missing in third_party/imgui." >&2
+    echo "Run: git submodule update --init --recursive" >&2
+    echo "If you just added submodules, commit .gitmodules and submodule entries." >&2
+    exit 1
+  fi
 fi
 
 CMAKE_ARGS=(
@@ -56,6 +77,16 @@ CMAKE_ARGS=(
   -G "$GENERATOR"
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
 )
+
+if [[ "$USE_SUBMODULE_DEPS_VALUE" == "0" ]]; then
+  CMAKE_ARGS+=(-DUSE_SUBMODULE_DEPS=OFF)
+else
+  CMAKE_ARGS+=(-DUSE_SUBMODULE_DEPS=ON)
+fi
+
+if [[ "$USE_SYSTEM_DEPS_VALUE" == "1" ]]; then
+  CMAKE_ARGS+=(-DUSE_SYSTEM_DEPS=ON)
+fi
 
 if [[ "${USE_SYSTEM_GLFW:-0}" == "1" ]]; then
   CMAKE_ARGS+=(-DUSE_SYSTEM_GLFW=ON)

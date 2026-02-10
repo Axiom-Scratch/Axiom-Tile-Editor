@@ -536,6 +536,10 @@ void DrawSceneView(EditorUIState& state, EditorUIOutput& out, Framebuffer& frame
   if (!ImGui::Begin("Scene View", nullptr, flags)) {
     state.sceneHovered = false;
     state.sceneRect = {};
+    out.sceneHovered = false;
+    out.sceneActive = false;
+    out.sceneRectMin = {};
+    out.sceneRectMax = {};
     ImGui::End();
     return;
   }
@@ -561,9 +565,15 @@ void DrawSceneView(EditorUIState& state, EditorUIOutput& out, Framebuffer& frame
 #else
   ImGui::Image(texId, sceneSize, ImVec2(0, 1), ImVec2(1, 0));
 #endif
-  state.sceneHovered = ImGui::IsItemHovered();
+  const bool sceneHovered = ImGui::IsItemHovered();
+  const bool sceneActive = ImGui::IsItemActive();
   ImVec2 rectMin = ImGui::GetItemRectMin();
   ImVec2 rectMax = ImGui::GetItemRectMax();
+  out.sceneHovered = sceneHovered;
+  out.sceneActive = sceneActive;
+  out.sceneRectMin = {rectMin.x, rectMin.y};
+  out.sceneRectMax = {rectMax.x, rectMax.y};
+  state.sceneHovered = sceneHovered;
   state.sceneRect = {rectMin.x, rectMin.y, rectMax.x - rectMin.x, rectMax.y - rectMin.y};
 
   ImGui::End();
@@ -1154,6 +1164,13 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
 void DrawSceneOverlay(const EditorUIState& state,
                       float fps,
                       float zoom,
+                      Tool currentTool,
+                      Vec2 mousePos,
+                      Vec2 mouseDelta,
+                      Vec2 scrollDelta,
+                      bool lmbDown,
+                      bool rmbDown,
+                      bool mmbDown,
                       bool hasHover,
                       Vec2i hoverCell,
                       int tileIndex) {
@@ -1161,14 +1178,20 @@ void DrawSceneOverlay(const EditorUIState& state,
     return;
   }
 
-  char buffer[256];
-  if (hasHover) {
-    std::snprintf(buffer, sizeof(buffer), "FPS: %.1f\nZoom: %.2f\nHover: (%d, %d)\nTile: %d",
-                  fps, zoom, hoverCell.x, hoverCell.y, tileIndex);
-  } else {
-    std::snprintf(buffer, sizeof(buffer), "FPS: %.1f\nZoom: %.2f\nHover: none\nTile: %d",
-                  fps, zoom, tileIndex);
-  }
+  const ImGuiIO& io = ImGui::GetIO();
+  const char* toolLabel = ToolLabel(currentTool);
+  char buffer[512];
+  const char* hoverText = hasHover ? "true" : "false";
+  const int hoverX = hasHover ? hoverCell.x : -1;
+  const int hoverY = hasHover ? hoverCell.y : -1;
+  std::snprintf(buffer, sizeof(buffer),
+                "FPS: %.1f\nZoom: %.2f\nMouse: (%.1f, %.1f)\nDelta: (%.1f, %.1f)\nScroll: (%.1f, %.1f)\n"
+                "Buttons: L:%s R:%s M:%s\nScene Hovered: %s\nCapture Mouse: %s\nTool: %s\nHover: %s (%d, %d)\n"
+                "Tile: %d",
+                fps, zoom, mousePos.x, mousePos.y, mouseDelta.x, mouseDelta.y, scrollDelta.x, scrollDelta.y,
+                lmbDown ? "down" : "up", rmbDown ? "down" : "up", mmbDown ? "down" : "up",
+                state.sceneHovered ? "true" : "false", io.WantCaptureMouse ? "true" : "false",
+                toolLabel, hoverText, hoverX, hoverY, tileIndex);
 
   ImDrawList* drawList = ImGui::GetForegroundDrawList();
   ImVec2 pos(state.sceneRect.x + 8.0f, state.sceneRect.y + 8.0f);

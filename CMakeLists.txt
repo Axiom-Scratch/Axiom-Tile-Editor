@@ -11,71 +11,69 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/Warnings.cmake)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if (DEFINED ENV{FETCHCONTENT_BASE_DIR})
-  set(FETCHCONTENT_BASE_DIR "$ENV{FETCHCONTENT_BASE_DIR}" CACHE PATH "" FORCE)
-endif()
-
 option(USE_SUBMODULE_DEPS "Use deps from third_party/ submodules" ON)
+option(USE_SYSTEM_DEPS "Use system GLFW + spdlog packages" OFF)
 option(USE_SYSTEM_GLFW "Use system installed GLFW" OFF)
 option(IMGUI_DOCKING "Use ImGui docking branch" ON)
 
-if (IMGUI_DOCKING)
-  set(IMGUI_GIT_TAG docking)
-else()
-  set(IMGUI_GIT_TAG v1.90.9)
+set(GLFW_TARGET "")
+set(SPDLOG_TARGET "")
+set(GLFW_SUBMODULE_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/glfw)
+set(IMGUI_SUBMODULE_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/imgui)
+set(SPDLOG_SUBMODULE_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/spdlog)
+set(IMGUI_DIR "")
+
+if (USE_SUBMODULE_DEPS)
+  if (NOT EXISTS ${GLFW_SUBMODULE_DIR}/CMakeLists.txt OR
+      NOT EXISTS ${IMGUI_SUBMODULE_DIR}/imgui.h OR
+      NOT EXISTS ${SPDLOG_SUBMODULE_DIR}/CMakeLists.txt)
+    if (USE_SYSTEM_DEPS)
+      set(USE_SUBMODULE_DEPS OFF)
+    else()
+      message(FATAL_ERROR "Submodules missing. Run: git submodule update --init --recursive")
+    endif()
+  endif()
 endif()
 
-include(FetchContent)
-
-set(GLFW_TARGET "")
-set(GLFW_SUBMODULE_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/glfw)
-
-if (USE_SUBMODULE_DEPS AND EXISTS ${GLFW_SUBMODULE_DIR}/CMakeLists.txt)
+if (USE_SUBMODULE_DEPS)
   set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
   set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-
-  add_subdirectory(third_party/glfw)
+  add_subdirectory(third_party/glfw EXCLUDE_FROM_ALL)
   set(GLFW_TARGET glfw)
-elseif (USE_SUBMODULE_DEPS)
-  message(WARNING "USE_SUBMODULE_DEPS=ON but third_party/glfw not found. Falling back to system/FetchContent.")
-endif()
 
-if (NOT GLFW_TARGET)
-  if (USE_SYSTEM_GLFW)
-    find_package(glfw3 CONFIG QUIET)
-    if (TARGET glfw3::glfw)
-      set(GLFW_TARGET glfw3::glfw)
-    elseif (TARGET glfw)
-      set(GLFW_TARGET glfw)
-    else()
-      find_package(PkgConfig REQUIRED)
-      pkg_check_modules(GLFW3 REQUIRED IMPORTED_TARGET glfw3)
-      set(GLFW_TARGET PkgConfig::GLFW3)
-    endif()
+  set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+  add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
+  set(SPDLOG_TARGET spdlog::spdlog)
+
+  set(IMGUI_DIR ${IMGUI_SUBMODULE_DIR})
+elseif (USE_SYSTEM_DEPS)
+  find_package(glfw3 CONFIG QUIET)
+  if (TARGET glfw3::glfw)
+    set(GLFW_TARGET glfw3::glfw)
+  elseif (TARGET glfw)
+    set(GLFW_TARGET glfw)
   else()
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-
-    FetchContent_Declare(
-      glfw
-      GIT_REPOSITORY https://github.com/glfw/glfw.git
-      GIT_TAG 3.3.9
-      GIT_SHALLOW TRUE
-    )
-    FetchContent_MakeAvailable(glfw)
-    set(GLFW_TARGET glfw)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GLFW3 REQUIRED IMPORTED_TARGET glfw3)
+    set(GLFW_TARGET PkgConfig::GLFW3)
   endif()
-endif()
 
-FetchContent_Declare(
-  imgui
-  GIT_REPOSITORY https://github.com/ocornut/imgui.git
-  GIT_TAG ${IMGUI_GIT_TAG}
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(imgui)
+  find_package(spdlog CONFIG REQUIRED)
+  set(SPDLOG_TARGET spdlog::spdlog)
+
+  if (NOT EXISTS ${IMGUI_SUBMODULE_DIR}/imgui.h)
+    message(FATAL_ERROR "Vendored ImGui missing. Provide third_party/imgui (or init submodules).")
+  endif()
+  set(IMGUI_DIR ${IMGUI_SUBMODULE_DIR})
+else()
+  message(FATAL_ERROR "Submodules missing. Run: git submodule update --init --recursive or set USE_SYSTEM_DEPS=ON.")
+endif()
 
 find_package(OpenGL REQUIRED)
 
@@ -99,12 +97,12 @@ target_include_directories(stb_image PUBLIC
 target_compile_options(stb_image PRIVATE ${TE_WARNINGS_DEPS})
 
 set(IMGUI_SOURCES
-  ${imgui_SOURCE_DIR}/imgui.cpp
-  ${imgui_SOURCE_DIR}/imgui_draw.cpp
-  ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-  ${imgui_SOURCE_DIR}/imgui_tables.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+  ${IMGUI_DIR}/imgui.cpp
+  ${IMGUI_DIR}/imgui_draw.cpp
+  ${IMGUI_DIR}/imgui_widgets.cpp
+  ${IMGUI_DIR}/imgui_tables.cpp
+  ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+  ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
 add_library(imgui STATIC
@@ -112,8 +110,8 @@ add_library(imgui STATIC
 )
 
 target_include_directories(imgui SYSTEM PUBLIC
-  ${imgui_SOURCE_DIR}
-  ${imgui_SOURCE_DIR}/backends
+  ${IMGUI_DIR}
+  ${IMGUI_DIR}/backends
 )
 target_compile_options(imgui PRIVATE ${TE_WARNINGS_DEPS})
 
@@ -158,6 +156,7 @@ target_link_libraries(tile_editor PRIVATE
   OpenGL::GL
   stb_image
   imgui
+  ${SPDLOG_TARGET}
 )
 
 target_compile_definitions(tile_editor PRIVATE

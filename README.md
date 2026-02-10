@@ -41,6 +41,14 @@ cd Axiom-Tile-Editor
 ./scripts/run.sh debug
 ```
 
+Offline/system deps (no network):
+```bash
+# Install GLFW + spdlog from your package manager.
+# Ensure ImGui is vendored in third_party/imgui.
+USE_SYSTEM_DEPS=1 ./scripts/build.sh debug
+./scripts/run.sh debug
+```
+
 ## Controls (Quick Start)
 - Mouse: left paint, right erase, middle drag pan
 - Keyboard: WASD pan, mouse wheel zoom, 1-9 select tile

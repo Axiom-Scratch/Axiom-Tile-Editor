@@ -95,6 +95,11 @@ struct EditorUIOutput {
   std::string atlasPath;
   int resizeWidth = 0;
   int resizeHeight = 0;
+
+  Vec2 sceneRectMin{};
+  Vec2 sceneRectMax{};
+  bool sceneHovered = false;
+  bool sceneActive = false;
 };
 
 void LoadEditorConfig(EditorUIState& state);
@@ -112,6 +117,13 @@ EditorUIOutput DrawEditorUI(EditorUIState& state,
 void DrawSceneOverlay(const EditorUIState& state,
                       float fps,
                       float zoom,
+                      Tool currentTool,
+                      Vec2 mousePos,
+                      Vec2 mouseDelta,
+                      Vec2 scrollDelta,
+                      bool lmbDown,
+                      bool rmbDown,
+                      bool mmbDown,
                       bool hasHover,
                       Vec2i hoverCell,
                       int tileIndex);
